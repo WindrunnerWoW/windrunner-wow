@@ -8,6 +8,9 @@ using namespace ai;
 
 bool GuildAcceptAction::Execute(Event& event)
 {
+    if (sPlayerbotAIConfig.windrunnerCompanionMode)
+        return false;
+
     Player* requester = event.getOwner() ? event.getOwner() : GetMaster();
     WorldPacket p(event.getPacket());
     p.rpos(0);

@@ -450,6 +450,9 @@ delayedPackets ChatReplyAction::GenerateResponsePackets(const std::string json
 
 void ChatReplyAction::ChatReplyDo(Player* bot, uint32 type, uint32 guid1, uint32 guid2, std::string msg, std::string chanName, std::string name)
 {
+    if (sPlayerbotAIConfig.windrunnerCompanionMode)
+        return;
+
     // if we're just commanding bots around, don't respond...
     // first one is for exact word matches
     if (noReplyMsgs.find(msg) != noReplyMsgs.end())

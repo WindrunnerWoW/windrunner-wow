@@ -10,6 +10,9 @@ using namespace ai;
 
 bool WtsAction::Execute(Event& event)
 {
+    if (sPlayerbotAIConfig.windrunnerCompanionMode)
+        return false;
+
     Player* owner = event.getOwner();
     if (!owner)
         return false;

@@ -27,7 +27,7 @@ namespace ai
             return Invite(bot, target);
         }
 
-        virtual bool Invite(Player* inviter, Player* player);
+        virtual bool Invite(Player* inviter, Player* player, bool requestedJoin = false);
         virtual bool isUsefulWhenStunned() override { return true; }
     };
 

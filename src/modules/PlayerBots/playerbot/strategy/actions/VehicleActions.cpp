@@ -26,14 +26,20 @@ bool EnterVehicleAction::Execute(Event& event)
         if (!vehicle->IsFriend(bot))
         {
             std::ostringstream out; out << "Vehicle is not friendy!";
-            bot->Say(out.str(), LANG_UNIVERSAL);
+            if (!sPlayerbotAIConfig.windrunnerCompanionMode)
+            {
+                bot->Say(out.str(), LANG_UNIVERSAL);
+            }
             continue;
         }
 
         if (!vehicle->GetVehicleInfo()->CanBoard(bot))
         {
             std::ostringstream out; out << "Can't enter Vehicle!";
-            bot->Say(out.str(), LANG_UNIVERSAL);
+            if (!sPlayerbotAIConfig.windrunnerCompanionMode)
+            {
+                bot->Say(out.str(), LANG_UNIVERSAL);
+            }
             continue;
         }
 
@@ -50,7 +56,10 @@ bool EnterVehicleAction::Execute(Event& event)
         vehicle->GetVehicleInfo()->Board(bot, seat);
 
         std::ostringstream out; out << "Entering Vehicle!";
-        bot->Say(out.str(), LANG_UNIVERSAL);
+        if (!sPlayerbotAIConfig.windrunnerCompanionMode)
+        {
+            bot->Say(out.str(), LANG_UNIVERSAL);
+        }
         continue;
 
         //bot->CastSpell(vehicle, SPELL_RIDE_VEHICLE_HARDCODED, TRIGGERED_OLD_TRIGGERED);
