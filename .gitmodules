@@ -1,0 +1,16 @@
+[submodule "src/modules/Eluna"]
+	path = src/modules/Eluna
+	url = https://github.com/ElunaLuaEngine/Eluna.git
+
+[submodule "modules/mod-crafting-storage"]
+	path = modules/mod-crafting-storage
+	url = https://github.com/WindrunnerWoW/windrunner-crafting-storage.git
+
+[submodule "src/modules/GroupQuestLoot"]
+	path = src/modules/GroupQuestLoot
+	url = https://github.com/WindrunnerWoW/windrunner-group-quest-loot.git
+
+[submodule "modules/mod-crafting-orders"]
+	path = modules/mod-crafting-orders
+	url = https://github.com/WindrunnerWoW/windrunner-crafting-orders.git
+	branch = main
