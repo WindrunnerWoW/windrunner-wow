@@ -283,7 +283,6 @@ jobs:
             }
             Write-Host "module config: modules/$name"
           }
-
           $stale = @(Get-ChildItem -Path $dest -Recurse -Filter '*.conf.dist' -File -ErrorAction SilentlyContinue)
           if ($stale.Count -gt 0) {
             throw ("config templates were installed without renaming: " + (($stale | ForEach-Object { $_.FullName }) -join ', '))
