@@ -41,6 +41,26 @@ static eConfigFloatValues const qualityToRate[MAX_ITEM_QUALITY] =
     CONFIG_FLOAT_RATE_DROP_ITEM_ARTIFACT,                                // ITEM_QUALITY_ARTIFACT
 };
 
+namespace
+{
+    QuestLootSharingPolicy& QuestLootSharingPolicyStorage()
+    {
+        static QuestLootSharingPolicy policy = nullptr;
+        return policy;
+    }
+
+    bool ShouldUseQuestLootSharingPolicy(LootStoreItem const& item)
+    {
+        QuestLootSharingPolicy policy = QuestLootSharingPolicyStorage();
+        return policy && policy(item);
+    }
+}
+
+void RegisterQuestLootSharingPolicy(QuestLootSharingPolicy policy)
+{
+    QuestLootSharingPolicyStorage() = policy;
+}
+
 LootStore LootTemplates_Creature(     "creature_loot_template",      "creature entry",                     true);
 LootStore LootTemplates_Disenchant(   "disenchant_loot_template",    "item disenchant id",                 true);
 LootStore LootTemplates_Fishing(      "fishing_loot_template",       "area id",                            true);
@@ -372,7 +392,7 @@ LootItem::LootItem(LootStoreItem const& li)
     conditionId = li.conditionId;
 
     ItemPrototype const* proto = sObjectMgr.GetItemPrototype(itemid);
-    freeforall  = proto && (proto->Flags & ITEM_FLAG_PARTY_LOOT);
+    freeforall  = (proto && (proto->Flags & ITEM_FLAG_PARTY_LOOT)) || ShouldUseQuestLootSharingPolicy(li);
 
     needs_quest = li.needs_quest;
 
@@ -500,16 +520,14 @@ void Loot::AddItem(LootStoreItem const & item)
     }
     else if (items.size() < MAX_NR_LOOT_ITEMS)              // Non-quest drop
     {
-        items.push_back(LootItem(item));
+        LootItem lootItem(item);
+        items.push_back(lootItem);
 
         // non-conditional one-player only items are counted here,
         // free for all items are counted in FillFFALoot(),
         // non-ffa conditionals are counted in FillNonQuestNonFFAConditionalLoot()
-        if (!item.conditionId)
-        {
-            if (!proto || !(proto->Flags & ITEM_FLAG_PARTY_LOOT))
-                ++unlootedCount;
-        }
+        if (!item.conditionId && !lootItem.freeforall)
+            ++unlootedCount;
     }
 }
 
@@ -561,6 +579,69 @@ bool Loot::FillLoot(uint32 loot_id, LootStore const& store, Player* loot_owner, 
     // ... for personal loot
     else
         FillNotNormalLootFor(loot_owner);
+
+    return true;
+}
+
+bool Loot::AddFFAItem(uint32 itemid, uint32 count, std::vector<Player*> const& players)
+{
+    if (!itemid || !count || items.size() >= MAX_NR_LOOT_ITEMS)
+        return false;
+
+    ItemPrototype const* proto = sObjectMgr.GetItemPrototype(itemid);
+    if (!proto)
+        return false;
+
+    if (!proto->Discovered)
+        proto->Discovered = true;
+
+    items.push_back(LootItem(itemid, count));
+    LootItem& item = items.back();
+    // Force FFA so we don't have to set ITEM_FLAG_PARTY_LOOT on the template.
+    item.freeforall = true;
+    uint8 const itemIndex = static_cast<uint8>(items.size() - 1);
+
+    bool added = false;
+    for (Player* player : players)
+    {
+        if (!player || !player->IsInWorld() ||
+            !item.AllowedForPlayer(player, GetLootTarget()))
+            continue;
+
+        uint32 const playerGuid = player->GetGUIDLow();
+        QuestItemList* playerItems = nullptr;
+        QuestItemMap::iterator playerItemsItr = m_playerFFAItems.find(playerGuid);
+        if (playerItemsItr == m_playerFFAItems.end())
+        {
+            playerItems = new QuestItemList();
+            m_playerFFAItems[playerGuid] = playerItems;
+        }
+        else
+            playerItems = playerItemsItr->second;
+
+        playerItems->push_back(QuestItem(itemIndex));
+        ++unlootedCount;
+        added = true;
+
+        bool isAllowedLooter = false;
+        for (ObjectGuid const& allowedLooter : m_allowedLooters)
+        {
+            if (allowedLooter == player->GetObjectGuid())
+            {
+                isAllowedLooter = true;
+                break;
+            }
+        }
+
+        if (!isAllowedLooter)
+            m_allowedLooters.push_back(player->GetObjectGuid());
+    }
+
+    if (!added)
+    {
+        items.pop_back();
+        return false;
+    }
 
     return true;
 }

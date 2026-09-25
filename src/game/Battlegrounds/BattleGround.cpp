@@ -23,6 +23,7 @@
 #include "Player.h"
 #include "BattleGround.h"
 #include "BattleGroundMgr.h"
+#include "WeeklyQuestContent.h"
 #include "Creature.h"
 #include "MapManager.h"
 #include "Language.h"
@@ -37,6 +38,12 @@
 #include "Formulas.h"
 #include "GridNotifiersImpl.h"
 #include "Chat.h"
+
+namespace
+{
+    constexpr uint32 PVP_BONUS_ITEM = 1985500;
+    constexpr uint32 PVP_BONUS_ITEM_COUNT = 2;
+}
 
 namespace MaNGOS
 {
@@ -311,6 +318,16 @@ void BattleGround::Update(uint32 diff)
     /*********************************************************/
     /***           BATTLEGROUND BALLANCE SYSTEM            ***/
     /*********************************************************/
+
+    // Custom: hard time limit for WSG/AB so bot-heavy matches that never cap flags/nodes
+    // (bots standing around instead of fighting) don't run forever. Whoever leads on
+    // points/flags when the clock runs out wins, same resolution as premature-finish.
+    if (!IsArena() && GetStatus() == STATUS_IN_PROGRESS &&
+        (GetTypeID() == BATTLEGROUND_WS || GetTypeID() == BATTLEGROUND_AB) &&
+        m_StartTime > 20 * MINUTE * IN_MILLISECONDS)
+    {
+        EndBattleGround(GetWinningTeam());
+    }
 
     // if less then minimum players are in on one side, then start premature finish timer
     if (!IsArena() && GetStatus() == STATUS_IN_PROGRESS && sBattleGroundMgr.GetPrematureFinishTime() && (GetPlayersCountByTeam(ALLIANCE) < GetMinPlayersPerTeam() || GetPlayersCountByTeam(HORDE) < GetMinPlayersPerTeam()))
@@ -762,13 +779,20 @@ void BattleGround::EndBattleGround(Team winner)
         }
 
         if (team == winner)
+        {
             RewardMark(pPlayer, true);
+            RewardItem(pPlayer, PVP_BONUS_ITEM, PVP_BONUS_ITEM_COUNT);
+        }
         // World of Warcraft Client Patch 1.8.4 (2005-12-06)
         // - Battles must now last at least ten minutes after the start of the 
         //   battle in order for the losing team to receive a Mark of Honor.
         //   This was reverted and will stay reverted for now.
         else
             RewardMark(pPlayer, false);
+
+        // A completed battleground counts regardless of the winning team; arenas do not.
+        if (!IsArena())
+            pPlayer->KilledMonsterCredit(WeeklyQuestContent::BattlegroundMatchCredit);
 
         pPlayer->CombatStopWithPets(true);
 

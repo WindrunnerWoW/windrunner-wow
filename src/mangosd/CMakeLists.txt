@@ -63,6 +63,7 @@ include_directories(
   ${CMAKE_SOURCE_DIR}/src/game/Movement/spline
   ${CMAKE_SOURCE_DIR}/src/game/Objects
   ${CMAKE_SOURCE_DIR}/src/game/OutdoorPvP
+  # PlayerBots include dir removed - Penqle stub binned
   ${CMAKE_SOURCE_DIR}/src/game/Protocol
   ${CMAKE_SOURCE_DIR}/src/game/Spells
   ${CMAKE_SOURCE_DIR}/src/game/Threat
@@ -124,9 +125,49 @@ if(USE_DISCORD_BOT)
   )
 endif()
 
+# playerbots library link gated by BUILD_PLAYERBOTS.
+if(BUILD_PLAYERBOTS)
+  target_link_libraries(${EXECUTABLE_NAME} playerbots)
+endif()
+
+if(BUILD_GROUP_QUEST_LOOT)
+  # Static-lib constructors (module auto-registration) must not be stripped.
+  if(MSVC)
+    target_link_libraries(${EXECUTABLE_NAME} groupquestloot)
+    target_link_options(${EXECUTABLE_NAME} PRIVATE "/WHOLEARCHIVE:$<TARGET_FILE:groupquestloot>")
+  elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    target_link_libraries(${EXECUTABLE_NAME} -Wl,--whole-archive groupquestloot -Wl,--no-whole-archive)
+  else()
+    target_link_libraries(${EXECUTABLE_NAME} groupquestloot)
+  endif()
+endif()
+
 target_link_libraries(${EXECUTABLE_NAME}
     libdeflate
 )
+
+# Boost lib search path for playerbots' transitive boost references.
+# Boost's prebuilt Windows binaries live under lib64-msvc-<toolset> (or
+# BOOST_LIBRARYDIR if the user set it explicitly).
+if(WIN32 AND BUILD_PLAYERBOTS)
+    if(DEFINED ENV{BOOST_LIBRARYDIR})
+        target_link_directories(${EXECUTABLE_NAME} PRIVATE "$ENV{BOOST_LIBRARYDIR}")
+    elseif(DEFINED ENV{BOOST_ROOT})
+        # Map MSVC toolset version (e.g. 1930) to Boost's lib dir suffix
+        # ("14.3"). Falls back to 14.3 (matches Boost 1.86 prebuilt) if the
+        # heuristic doesn't resolve.
+        if(MSVC_TOOLSET_VERSION GREATER_EQUAL 143)
+            set(_boost_lib_suffix "14.3")
+        elseif(MSVC_TOOLSET_VERSION GREATER_EQUAL 142)
+            set(_boost_lib_suffix "14.2")
+        elseif(MSVC_TOOLSET_VERSION GREATER_EQUAL 141)
+            set(_boost_lib_suffix "14.1")
+        else()
+            set(_boost_lib_suffix "14.3")
+        endif()
+        target_link_directories(${EXECUTABLE_NAME} PRIVATE "$ENV{BOOST_ROOT}/lib64-msvc-${_boost_lib_suffix}")
+    endif()
+endif()
 
 
 if(WIN32)
@@ -180,8 +221,12 @@ set_target_properties(${EXECUTABLE_NAME} PROPERTIES LINK_FLAGS
 install(TARGETS ${EXECUTABLE_NAME} DESTINATION ${BIN_DIR})
 install(FILES run-mangosd DESTINATION ${BIN_DIR})
 configure_file(${CMAKE_CURRENT_SOURCE_DIR}/mangosd.conf.dist.in ${CMAKE_CURRENT_BINARY_DIR}/mangosd.conf.dist)
-install(FILES ${CMAKE_CURRENT_BINARY_DIR}/mangosd.conf.dist DESTINATION ${CONF_DIR})
+InstallServerConf(${CMAKE_CURRENT_BINARY_DIR}/mangosd.conf.dist ${CONF_DIR})
+InstallServerConf(${CMAKE_CURRENT_SOURCE_DIR}/mods.conf.dist.in ${CONF_DIR})
+InstallServerConf(${CMAKE_CURRENT_SOURCE_DIR}/rate.conf.dist.in ${CONF_DIR})
 
 if(WIN32 AND MSVC)
-  install(FILES ${CMAKE_CURRENT_BINARY_DIR}/\${BUILD_TYPE}/${EXECUTABLE_NAME}.pdb DESTINATION ${BIN_DIR} CONFIGURATIONS Debug)
+  # Every configuration, not just Debug: a Release minidump needs the symbols
+  # just as much, and RelWithDebInfo produced a .pdb that never got installed.
+  install(FILES $<TARGET_PDB_FILE:${EXECUTABLE_NAME}> DESTINATION ${BIN_DIR} OPTIONAL)
 endif()

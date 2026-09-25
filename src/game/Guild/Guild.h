@@ -34,6 +34,7 @@ class Petition;
 
 #define GUILD_RANKS_MIN_COUNT   5
 #define GUILD_RANKS_MAX_COUNT   10
+#define GUILD_RANK_NONE         0xFF
 
 enum
 {
@@ -234,6 +235,8 @@ class Guild
         ObjectGuid GetLeaderGuid() const { return m_LeaderGuid; }
         std::string const& GetName() const { return m_Name; }
         std::string const& GetMOTD() const { return m_motd; }
+        // cmangos uses GetGINFO; Penqle stores as m_info.
+        std::string const& GetGINFO() const { return m_info; }
         std::string const& GetInfo() const { return m_info; }
 
         void Rename(std::string& newName);

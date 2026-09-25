@@ -165,6 +165,17 @@ const uint32 BG_AB_PerTickHonor[MAX_BATTLEGROUND_BRACKETS] = {10, 1, 1, 4, 7, 11
 const uint32 BG_AB_WinMatchHonor[MAX_BATTLEGROUND_BRACKETS] = {10, 1, 1, 4, 7, 11, 19, 20};
 
 // WorldSafeLocs ids for 5 nodes, and for ally, and horde starting location
+// Was {895, 894, 893, 897, 896, 898, 899} (standard vanilla WorldSafeLocs.dbc
+// IDs) - this server's DBC (Turtle WoW 1.18 client, only 174 entries total)
+// doesn't have any of them, so every AB death fell back to "stay at your
+// corpse" (confirmed live 2026-07-27/28, same root cause as the WSG fix).
+// Real entries exist under different IDs - identified unambiguously by
+// matching each map_id=529 DBC entry's coordinates against
+// BG_AB_BuffPositions below (each graveyard sits ~30-70 units from its
+// node's buff spot, no ambiguity): Stables=119, Blacksmith=118, Farm=117,
+// LumberMill=121, GoldMine=120. The last two slots (Alliance/Horde
+// fallback graveyard used when a team holds zero nodes) are the two
+// leftover entries near each team's base corner (see also 113/114 above).
 const uint32 BG_AB_GraveyardIds[7] = {119, 118, 117, 121, 120, 122, 123};
 
 // x, y, z, o

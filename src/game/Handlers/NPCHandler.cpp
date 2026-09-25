@@ -39,6 +39,9 @@
 #include "GuildMgr.h"
 #include "Chat.h"
 #include "CharacterDatabaseCache.h"
+#ifdef ENABLE_ELUNA
+#include "LuaEngine.h"
+#endif
 
 enum StableResultCode
 {
@@ -343,11 +346,21 @@ void WorldSession::HandleTrainerBuySpellOpcode(WorldPacket & recv_data)
     _player->RemoveAurasWithInterruptFlags(AURA_INTERRUPT_FLAG_TALK);
     _player->RemoveSpellsCausingAura(SPELL_AURA_MOUNTED);
 
+    // A seated trainer cannot teach. The learning spell is cast by the trainer,
+    // and CheckCast refuses any caster that is not standing up, so the purchase
+    // failed with SPELL_FAILED_NOT_STANDING - silently, since the client shows
+    // nothing for TRAIN_FAIL_UNAVAILABLE and no money changes hands. Turtle has
+    // trainers who sit at their tables by design, so rather than stand them up,
+    // let them cast this as triggered. Everything that check would otherwise
+    // catch has already been verified above: interaction, line of sight, that
+    // the spell is on this trainer's list, that it can be learned, and money.
+    bool const seatedTrainer = !unit->IsStandingUp();
+
     Spell *spell;
     if (proto->SpellVisual == 222)
         spell = new Spell(_player, proto, false);
     else
-        spell = new Spell(unit, proto, false);
+        spell = new Spell(unit, proto, seatedTrainer);
 
     SpellCastTargets targets;
     targets.setUnitTarget(_player);
@@ -362,7 +375,15 @@ void WorldSession::HandleTrainerBuySpellOpcode(WorldPacket & recv_data)
         SendTrainingSuccess(guid, spellId);
     }
     else
+    {
+        // Worth saying out loud: the client shows nothing for TRAIN_FAIL_UNAVAILABLE,
+        // so without this a failed purchase is invisible on both ends - the player
+        // clicks, nothing happens, and the log stays silent about why.
+        sLog.outError("HandleTrainerBuySpellOpcode: %s could not learn spell %u from %s, cast result %u.",
+            _player->GetGuidStr().c_str(), spellId, guid.GetString().c_str(), uint32(cast_result));
+
         SendTrainingFailure(guid, spellId, TRAIN_FAIL_UNAVAILABLE);
+    }
 }
 
 void WorldSession::HandleGossipHelloOpcode(WorldPacket & recv_data)
@@ -456,6 +477,19 @@ void WorldSession::HandleGossipSelectOptionOpcode(WorldPacket & recv_data)
         if (!sScriptMgr.OnGossipSelect(_player, pGo, sender, action, code.empty() ? nullptr : code.c_str()))
             _player->OnGossipSelect(pGo, gossipListId);
     }
+#ifdef ENABLE_ELUNA
+    else if (guid.IsItem())
+    {
+        if (Item* item = GetPlayer()->GetItemByGuid(guid))
+            if (Eluna* e = GetPlayer()->GetEluna())
+                e->HandleGossipSelectOption(GetPlayer(), item, sender, action, code);
+    }
+    else if (guid.IsPlayer() && guid == GetPlayer()->GetObjectGuid())
+    {
+        if (Eluna* e = GetPlayer()->GetEluna())
+            e->HandleGossipSelectOption(GetPlayer(), GetPlayer()->PlayerTalkClass->GetGossipMenu().GetMenuId(), sender, action, code);
+    }
+#endif
 }
 
 void WorldSession::HandleSpiritHealerActivateOpcode(WorldPacket & recv_data)

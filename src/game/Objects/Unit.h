@@ -377,6 +377,7 @@ typedef std::list< ProcTriggeredData > ProcTriggeredList;
 class Unit : public WorldObject
 {
     public:
+        virtual void SetName(std::string const& /*name*/) {}
         static Unit* GetUnit(WorldObject &obj, uint64 const &Guid);
 
         typedef std::set<Unit*> AttackerSet;
@@ -450,6 +451,7 @@ class Unit : public WorldObject
         bool HealthBelowPctDamaged(int32 pct, uint32 damage) const { return (int32(GetHealth()) - damage) * 100 < GetMaxHealth() * pct; }
         bool HealthAbovePct(int32 pct) const { return GetHealth() * 100 > GetMaxHealth() * pct; }
         uint32 CountPctFromMaxHealth(int32 pct) const { return uint32(float(pct) * GetMaxHealth() / 100.0f); }
+        uint32 CountPctFromCurHealth(int32 pct) const { return uint32(float(pct) * GetHealth() / 100.0f); }
         void SetFullHealth() { SetHealth(GetMaxHealth()); }
 
         Powers GetPowerType() const { return Powers(GetByteValue(UNIT_FIELD_BYTES_0, 3)); }
@@ -458,6 +460,38 @@ class Unit : public WorldObject
         uint32 GetPower(   Powers power) const { return GetUInt32Value(UNIT_FIELD_POWER1   +power); }
         uint32 GetMaxPower(Powers power) const { return GetUInt32Value(UNIT_FIELD_MAXPOWER1+power); }
         float GetPowerPercent(Powers power) const { return GetMaxPower(power) ? ((GetPower(power)*100.0f) / GetMaxPower(power)) : 100.0f; }
+        // AzerothCore spellings.
+        float GetHealthPct() const { return GetHealthPercent(); }
+        Powers getPowerType() const { return GetPowerType(); }
+        bool HasDynamicFlag(uint32 flags) const { return HasFlag(UNIT_DYNAMIC_FLAGS, flags); }
+        bool HasUnitFlag(uint32 flags) const { return HasFlag(UNIT_FIELD_FLAGS, flags); }
+        // AzerothCore plural spelling of RemoveSpellsCausingAura.
+        void RemoveAurasByType(AuraType type) { RemoveSpellsCausingAura(type); }
+        // AzerothCore LOS form with backend selector and ignore flags; this
+        // core has one backend and ignores nothing, so both drop. The
+        // using-declaration is load-bearing: an overload declared here hides
+        // every inherited IsWithinLOSInMap, and the grid notifiers call the
+        // one-argument form on Unit and Creature.
+        using WorldObject::IsWithinLOSInMap;
+        template<class TIgnore, class TChecks>
+        bool IsWithinLOSInMap(WorldObject const* target, TIgnore, TChecks) const { return WorldObject::IsWithinLOSInMap(target); }
+        // AzerothCore spells direct scripted damage as a static taking the
+        // attacker first. Same deal-damage path underneath.
+        static uint32 DealDamage(Unit* attacker, Unit* victim, uint32 damage)
+        {
+            if (!attacker || !victim)
+                return 0;
+            return attacker->DealDamage(victim, damage, nullptr, DIRECT_DAMAGE, SPELL_SCHOOL_MASK_NORMAL, nullptr, false);
+        }
+        float GetPowerPct(Powers power) const { return GetPowerPercent(power); }
+        uint32 GetFaction() const { return GetFactionTemplateId(); }
+        bool IsNonMeleeSpellCast(bool withDelayed, bool skipChanneled = false, bool skipAutorepeat = false) const
+        { return IsNonMeleeSpellCasted(withDelayed, skipChanneled, skipAutorepeat); }
+        bool HasNpcFlag(uint32 flags) const { return HasFlag(UNIT_NPC_FLAGS, flags); }
+        // AzerothCore carries a forced flag; this setter always applies.
+        void SetSpeed(UnitMoveType mtype, float rate, bool /*forced*/ = false) { SetSpeedRate(mtype, rate); }
+        // cmangos's 0-arg form uses unit's primary power type.
+        float GetPowerPercent() const { return GetPowerPercent(GetPowerType()); }
         void SetPower(   Powers power, uint32 val);
         void SetMaxPower(Powers power, uint32 val);
         void SetPowerPercent(Powers power, float percent);
@@ -557,6 +591,19 @@ class Unit : public WorldObject
             return creatureType ? (1 << (creatureType - 1)) : 0;
         }
         bool IsAlive() const { return (m_deathState == ALIVE); }
+        bool IsDying() const { return m_deathState == JUST_DIED; }
+        // AzerothCore spelling.
+        bool isDead() const;
+        // AzerothCore starts a fight in one call. Here that is entering combat
+        // with the target and putting it on the threat list at zero, which is
+        // what the engage path does.
+        void EngageWithTarget(Unit* target)
+        {
+            if (!target)
+                return;
+            SetInCombatWith(target);
+            AddThreat(target, 0.0f);
+        }
         bool IsDead() const { return ((m_deathState == DEAD) || (m_deathState == CORPSE)); }
 
         DeathState GetDeathState() const { return m_deathState; }
@@ -568,6 +615,82 @@ class Unit : public WorldObject
         uint8 GetClass() const { return GetByteValue(UNIT_FIELD_BYTES_0, 1); }
         uint32 GetClassMask() const { return GetClass() ? 1 << (GetClass()-1) : 0x0; }
         uint8 GetGender() const final { return GetByteValue(UNIT_FIELD_BYTES_0, 2); }
+        // camelCase aliases (cmangos style).
+        // Penqle uses PascalCase; bot module uses camelCase. Inline forwarders keep
+        uint32 getLevel() const { return GetLevel(); }
+        uint8 getRace() const { return GetRace(); }
+        uint32 getRaceMask() const { return GetRaceMask(); }
+        uint8 getClass() const { return GetClass(); }
+        uint32 getClassMask() const { return GetClassMask(); }
+        uint8 getGender() const { return GetGender(); }
+        // More cmangos-style camelCase aliases for the bot module:
+        void clearUnitState(uint32 f) { ClearUnitState(f); }
+        void addUnitState(uint32 f) { AddUnitState(f); }
+        bool hasUnitState(uint32 f) const { return HasUnitState(f); }
+        // bot uses cmangos shorthand IsStunned/HasMana/IsInTeam.
+        bool IsStunned() const { return HasUnitState(UNIT_STAT_STUNNED); }
+        bool HasMana() const { return GetPowerType() == POWER_MANA; }
+        // IsInTeam: cmangos checks faction team; Penqle has Player::GetTeam only.
+        // For non-Player units, default to Alliance. Bot uses this in PVP filters; harmless for solo.
+        // Implementation in Unit.cpp dispatches via Player check.
+        bool IsInTeam(uint32 team, bool allowFFA = false) const;
+        // Overload taking another unit/player to check team-match.
+        bool IsInTeam(Unit const* other, bool allowFFA = false) const;
+        // GetTarget()-style: cmangos returns Unit*; Penqle has GetVictim() (same concept).
+        // Bot module compares the result to nullptr or other Unit*, so Unit* matches semantics.
+        Unit* GetTarget() const { return GetVictim(); }
+        bool HasCharmer() const { return !GetCharmerGuid().IsEmpty(); }
+        // isInFront: cmangos signatures: (target, arc) or (target, distance, arc).
+        // Penqle's WorldObject::HasInArc takes (target, arc, offset). Map distance→ignore.
+        bool isInFront(WorldObject const* target, float arc = 3.14159265358979323846f) const { return HasInArc(target, arc); }
+        bool isInFront(WorldObject const* target, float /*distance*/, float arc) const { return HasInArc(target, arc); }
+        // bot reads target->GetSelectionGuid() on Unit*.
+        // Penqle Unit::GetTargetGuid is the same concept (current selection target).
+        ObjectGuid const& GetSelectionGuid() const { return GetTargetGuid(); }
+        // GetAttackDistance: cmangos has it on Unit; Penqle only on Creature. Forward when possible.
+        float GetAttackDistance(Unit const* target) const;
+        // GetCollisionWidth: cmangos shorthand; Penqle uses GetObjectBoundingRadius approximation.
+        float GetCollisionWidth() const { return GetObjectBoundingRadius(); }
+        // IsFriend: cmangos shorthand for IsFriendlyTo.
+        bool IsFriend(Unit const* target) const { return target && IsFriendlyTo(target); }
+        // IsEnemy: cmangos shorthand for IsHostileTo.
+        bool IsEnemy(Unit const* target) const { return target && IsHostileTo(target); }
+        // IsFalling: cmangos shorthand. Bot calls on Unit; Penqle uses MOVEFLAG_JUMPING/FALLINGFAR.
+        bool IsFalling() const { return m_movementInfo.HasMovementFlag(MovementFlags(MOVEFLAG_JUMPING | MOVEFLAG_FALLINGFAR)); }
+        // IsInSwimmableWater: cmangos shorthand. Penqle uses IsInWater + can-swim check.
+        bool IsInSwimmableWater() const { return IsInWater(); }
+        // IsSpellReady on Unit: forward to spell-cooldown check.
+        bool IsSpellReady(uint32 spellId) const { return !HasSpellCooldown(spellId); }
+        bool IsSpellReady(SpellEntry const* spellInfo) const;
+        // SetTarget WorldObject* overload: bot passes WorldObject; downcast to Unit if possible.
+        void SetTarget(WorldObject const* obj) {
+            Unit const* u = (obj && obj->IsUnit()) ? (Unit const*)obj : nullptr;
+            SetTargetGuid(u ? u->GetObjectGuid() : ObjectGuid());
+        }
+        // HasTarget on Unit: shorthand for has selection (any Unit).
+        bool HasTarget() const { return !GetTargetGuid().IsEmpty(); }
+        bool HasTarget(ObjectGuid guid) const { return GetTargetGuid() == guid; }
+        // CanAttackOnSight: cmangos hostility-on-sight check; Penqle approximation: hostile + not friendly.
+        bool CanAttackOnSight(Unit const* target) const { return target && IsHostileTo(target) && !IsFriendlyTo(target); }
+        // IsImmobilizedState: cmangos shorthand "rooted/stunned/snared". Penqle composite check.
+        bool IsImmobilizedState() const { return IsRooted() || HasUnitState(UNIT_STAT_STUNNED) || HasAuraType(SPELL_AURA_MOD_ROOT); }
+        // InterruptMoving: cmangos action; Penqle uses StopMoving.
+        void InterruptMoving(bool /*forceSendStop*/ = false) { StopMoving(false); }
+        // AzerothCore spelling; there is no separate on-current-position form here.
+        void StopMovingOnCurrentPos() { StopMoving(false); }
+        // AzerothCore takes the arc first. Penqle takes the target first.
+        // The using-declaration is load-bearing: declaring an overload here
+        // hides every HasInArc the base has, and the existing (target, arc)
+        // callers a few lines up would resolve to this one and fail to convert.
+        using WorldObject::HasInArc;
+        bool HasInArc(float arc, WorldObject const* target) const { return WorldObject::HasInArc(target, arc); }
+        // CanReachWithMeleeAttack: cmangos has it on Unit; Penqle uses CanReachWithMeleeAutoAttack.
+        bool CanReachWithMeleeAttack(Unit const* victim) const { return CanReachWithMeleeAutoAttack(victim); }
+        // GetControllingPlayer: cmangos returns charmer/owner Player. Stub: charmer if Player, else nullptr.
+        Player* GetControllingPlayer() const {
+            Unit* charmer = GetCharmerOrOwner();
+            return (charmer && charmer->GetTypeId() == TYPEID_PLAYER) ? (Player*)charmer : nullptr;
+        }
         SheathState GetSheath() const { return SheathState(GetByteValue(UNIT_FIELD_BYTES_2, 0)); }
         virtual void SetSheath(SheathState sheathed) { SetByteValue(UNIT_FIELD_BYTES_2, 0, sheathed); }
         void SetStandState(uint8 state);
@@ -666,7 +789,7 @@ class Unit : public WorldObject
         bool IsPolymorphed() const;
         bool IsImmuneToSchoolMask(uint32 schoolMask) const;
 
-        bool isFrozen() const;
+        bool isFrozen() const { return IsFrozen(); }
 
         void RemoveSpellbyDamageTaken(AuraType auraType, uint32 damage);
         void RemoveFearEffectsByDamageTaken(uint32 damage, uint32 exceptSpellId, DamageEffectType damagetype);
@@ -884,6 +1007,8 @@ class Unit : public WorldObject
         void AddGameObject(GameObject* pGo);
         void RemoveGameObject(GameObject* pGo, bool del);
         void RemoveGameObject(uint32 spellid, bool del);
+        // cmangos's 3-arg form (third bool ignored).
+        void RemoveGameObject(GameObject* pGo, bool del, bool /*notify*/) { RemoveGameObject(pGo, del); }
         void RemoveAllGameObjects();
         ObjectGuid m_ObjectSlotGuid[4];
 
@@ -994,6 +1119,7 @@ class Unit : public WorldObject
         void ApplySpellDispelImmunity(const SpellEntry * spellProto, DispelType type, bool apply);
         virtual bool IsImmuneToSpell(SpellEntry const* spellInfo, bool castOnSelf) const;
         virtual bool IsImmuneToDamage(SpellSchoolMask meleeSchoolMask, SpellEntry const* spellInfo = nullptr) const;
+        bool IsTotalImmune() const;
         virtual bool IsImmuneToSpellEffect(SpellEntry const* spellInfo, SpellEffectIndex index, bool castOnSelf) const;
         bool IsImmuneToSchool(SpellEntry const* spellInfo, uint8 effectMask) const;
 
@@ -1023,6 +1149,10 @@ class Unit : public WorldObject
         void CooldownEvent(SpellEntry const *spellInfo, uint32 itemId = 0, Spell* spell = nullptr);
         void AddSpellAndCategoryCooldowns(SpellEntry const* spellInfo, uint32 itemId, Spell* spell = nullptr, bool infinityCooldown = false);
         void RemoveSpellCooldown(uint32 spell_id, bool update = false);
+        // bot passes SpellEntry; forward to ID-based version.
+        void RemoveSpellCooldown(SpellEntry const& spellInfo, bool update = false);  // impl in Unit.cpp
+        void RemoveSpellCooldown(SpellEntry const* spellInfo, bool update = false);
+        void RemoveSpellCategoryCooldown(uint32 category, bool update = true);
         void RemoveAllSpellCooldown();
         void RemoveAllArenaSpellCooldown();
         void WritePetSpellsCooldown(WorldPacket& data) const;
@@ -1137,6 +1267,10 @@ class Unit : public WorldObject
 
         void AttackerStateUpdate(Unit* pVictim, WeaponAttackType attType = BASE_ATTACK, bool checkLoS = true, bool extra = false);
         void SendAttackStateUpdate(uint32 HitInfo, Unit* target, uint8 SwingType, SpellSchoolMask damageSchoolMask, uint32 Damage, uint32 AbsorbDamage, int32 Resist, VictimState TargetState, uint32 BlockedAmount) const;
+        void SendAttackStateUpdate(uint32 hitInfo, Unit* target, SpellSchoolMask schoolMask, uint32 damage, uint32 absorb, int32 resist, VictimState targetState, uint32 blocked) const
+        {
+            SendAttackStateUpdate(hitInfo, target, 0, schoolMask, damage, absorb, resist, targetState, blocked);
+        }
         void SendMeleeAttackStop(Unit* victim) const;
         void SendMeleeAttackStart(Unit* pVictim) const;
 
@@ -1240,6 +1374,8 @@ class Unit : public WorldObject
 
         // Returns the Unit::m_attackers, that stores the units that are attacking you
         AttackerSet const& GetAttackers() const { return m_attackers; }
+        // bot uses camelCase getAttackers.
+        AttackerSet const& getAttackers() const { return m_attackers; }
 
         // Returns the victim that this unit is currently attacking
         Unit* GetVictim() const { return m_attacking; }
@@ -1260,11 +1396,19 @@ class Unit : public WorldObject
         void DeleteThreatList();
         ThreatManager& GetThreatManager() { return m_ThreatManager; }
         ThreatManager const& GetThreatManager() const { return m_ThreatManager; }
+        // camelCase alias for the bot module.
+        // AzerothCore spelling.
+        ThreatManager& GetThreatMgr() { return getThreatManager(); }
+        ThreatManager& getThreatManager() { return m_ThreatManager; }
+        ThreatManager const& getThreatManager() const { return m_ThreatManager; }
 
         void AddHatedBy(HostileReference* pHostileReference) { m_HostileRefManager.insertFirst(pHostileReference); };
         void RemoveHatedBy(HostileReference* /*pHostileReference*/) { /* nothing to do yet */ }
         HostileRefManager& GetHostileRefManager() { return m_HostileRefManager; }
         HostileRefManager const& GetHostileRefManager() const { return m_HostileRefManager; }
+        // camelCase alias for the bot module.
+        HostileRefManager& getHostileRefManager() { return m_HostileRefManager; }
+        HostileRefManager const& getHostileRefManager() const { return m_HostileRefManager; }
 
         // Script Helpers
         uint8 GetEnemyCountInRadiusAround(Unit* pTarget, float radius) const;
@@ -1355,6 +1499,8 @@ class Unit : public WorldObject
         bool IsPassiveToHostile() const { return HasFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_IMMUNE_TO_NPC); }
 
         void SetTargetGuid(ObjectGuid targetGuid) { SetGuidValue(UNIT_FIELD_TARGET, targetGuid); }
+        // cmangos's SetTarget(Unit*) form.
+        void SetTarget(Unit const* target) { SetTargetGuid(target ? target->GetObjectGuid() : ObjectGuid()); }
         ObjectGuid const& GetTargetGuid() const { return GetGuidValue(UNIT_FIELD_TARGET); }
         void ClearTarget() { SetTargetGuid(ObjectGuid()); }
         ObjectGuid const& GetChannelObjectGuid() const { return GetGuidValue(UNIT_FIELD_CHANNEL_OBJECT); }
@@ -1369,6 +1515,8 @@ class Unit : public WorldObject
         ObjectGuid const& GetOwnerGuid() const { return  GetGuidValue(UNIT_FIELD_SUMMONEDBY); }
         void SetOwnerGuid(ObjectGuid owner) { SetGuidValue(UNIT_FIELD_SUMMONEDBY, owner); ForceValuesUpdateAtIndex(UNIT_FIELD_HEALTH); ForceValuesUpdateAtIndex(UNIT_FIELD_MAXHEALTH); }
         ObjectGuid const& GetCreatorGuid() const { return GetGuidValue(UNIT_FIELD_CREATEDBY); }
+        // bot calls GetCreator() returning Unit*.
+        Unit* GetCreator() const;
         void SetCreatorGuid(ObjectGuid creator) { SetGuidValue(UNIT_FIELD_CREATEDBY, creator); }
         
         ObjectGuid const& GetPetGuid() const { return GetGuidValue(UNIT_FIELD_SUMMON); }
@@ -1404,6 +1552,8 @@ class Unit : public WorldObject
         void SetCharmerGuid(ObjectGuid owner) { SetGuidValue(UNIT_FIELD_CHARMEDBY, owner); ForceValuesUpdateAtIndex(UNIT_FIELD_HEALTH); ForceValuesUpdateAtIndex(UNIT_FIELD_MAXHEALTH); }
         bool IsCharmed() const { return !GetCharmerGuid().IsEmpty(); }
         bool IsCharmerOrOwnerPlayerOrPlayerItself() const final { return IsPlayer() || GetCharmerOrOwnerGuid().IsPlayer(); }
+        bool isAttackingPlayer() const;
+        bool IsTargetableBy(WorldObject const* caster, bool forAoE = false, bool checkAlive = true, bool helpful = false) const;
         ObjectGuid const& GetCharmerOrOwnerGuid() const { return GetCharmerGuid() ? GetCharmerGuid() : GetOwnerGuid(); }
         ObjectGuid const& GetCharmerOrOwnerOrOwnGuid() const
         {
@@ -1469,6 +1619,15 @@ class Unit : public WorldObject
         void SendMovementPacket(uint16 opcode, bool includingSelf = true);
         
         void SetRooted(bool apply);
+        // AzerothCore routes control states through one call. Root maps onto
+        // SetRooted; the other states this signature can carry (stun, confuse,
+        // flee) are aura-driven on this core and no caller in tree asks for
+        // them - asserted rather than silently ignored.
+        void SetControlled(bool apply, uint32 state)
+        {
+            MANGOS_ASSERT(state == UNIT_STAT_ROOT && "SetControlled: only the root state is mapped");
+            SetRooted(apply);
+        }
         void SetRootedReal(bool apply);
 
         void SetWaterWalking(bool apply);
@@ -1514,6 +1673,10 @@ class Unit : public WorldObject
         void SetSpeedRateReal(UnitMoveType mtype, float rate);
         void UpdateSpeed(UnitMoveType mtype, bool forced, float ratio = 1.0f);
         float GetSpeed(UnitMoveType mtype) const;
+        // bot uses GetSpeedInMotion (current speed); Penqle uses GetSpeed(MOVE_RUN).
+        float GetSpeedInMotion() const { return GetSpeed(MOVE_RUN); }
+        // GetCombinedCombatReach: cmangos returns this+other reach; Penqle has no equivalent. Stub returns approximation.
+        float GetCombinedCombatReach(Unit const* /*pVictim*/ = nullptr, bool /*forMeleeRange*/ = true, float /*flat_mod*/ = 0.0f) const { return GetObjectBoundingRadius() * 2.0f; }
         float GetXZFlagBasedSpeed() const;
         float GetXZFlagBasedSpeed(uint32 moveFlags) const;
         float GetSpeedRate(UnitMoveType mtype) const { return m_speed_rate[mtype]; }

@@ -54,12 +54,23 @@ enum PathType
     PATHFIND_FLYPATH        = 0x0040,
     PATHFIND_UNDERWATER     = 0x0080,
     PATHFIND_CASTER         = 0x0100,
+    // AzerothCore flags a path whose START point was off the navmesh. This
+    // finder does not distinguish that case - an unreachable start comes back
+    // as PATHFIND_NOPATH. Zero so a ported `if (type & PATHFIND_FARFROMPOLY_*)`
+    // compiles and is never true; the NOPATH test beside it still catches it.
+    PATHFIND_FARFROMPOLY_START = 0x0000,
+    PATHFIND_FARFROMPOLY_END   = 0x0000,
+    PATHFIND_FARFROMPOLY       = 0x0000,
 };
 
 class PathInfo
 {
     public:
         PathInfo(Unit const* owner);
+        // bot calls PathFinder(mapId, instanceId) for global map paths.
+        PathInfo(uint32 /*mapId*/, uint32 /*instanceId*/) : PathInfo((Unit const*)nullptr) {}
+        // bot calls PathFinder(player, true) for transport pathing.
+        PathInfo(Unit const* owner, bool /*offsets*/) : PathInfo(owner) {}
         ~PathInfo();
 
         // return value : true if new path was calculated
@@ -68,6 +79,19 @@ class PathInfo
 
         void setUseStrightPath(bool useStraightPath) { m_useStraightPath = useStraightPath; };
         void setPathLengthLimit(float distance);
+        // bot calls these to tweak path cost.
+        // Penqle has no area-cost support; stubs are no-ops.
+        void setArea(uint32 /*area*/) {}
+        void setAreaCost(uint32 /*area*/, float /*cost*/) {}
+        float getArea(float /*x*/, float /*y*/, float /*z*/) const { return 0.0f; }
+        // 4-arg form: getArea(mapId, x, y, z).
+        float getArea(uint32 /*mapId*/, float /*x*/, float /*y*/, float /*z*/) const { return 0.0f; }
+        // ComputePathToRandomPoint: cmangos has it; Penqle doesn't. Stub returns false.
+        bool ComputePathToRandomPoint(Vector3 const& /*center*/, float /*radius*/) { return false; }
+        // getFlags: cmangos returns nav-flags at point. Stub returns 0.
+        unsigned short getFlags(uint32 /*mapId*/, float /*x*/, float /*y*/, float /*z*/) const { return 0; }
+        // 6-arg form: setArea(mapId, x, y, z, areaId, radius).
+        void setArea(uint32 /*mapId*/, float /*x*/, float /*y*/, float /*z*/, uint32 /*areaId*/, float /*radius*/) {}
 
         inline void getStartPosition(float &x, float &y, float &z) { x = m_startPosition.x; y = m_startPosition.y; z = m_startPosition.z; }
         inline void getEndPosition(float &x, float &y, float &z) { x = m_endPosition.x; y = m_endPosition.y; z = m_endPosition.z; }

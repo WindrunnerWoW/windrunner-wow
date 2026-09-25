@@ -446,6 +446,8 @@ Position const* ObjectMgr::GetCinematicInitialPosition(uint32 cinematicId)
 // ALTER TABLE characters ADD COLUMN world_phase_mask int(11) unsigned not null default 0;
 void ObjectMgr::LoadPlayerPhaseFromDb()
 {
+    std::lock_guard<std::mutex> lock(m_PlayerPhasesLock);
+
     m_PlayerPhases.clear();
 
     std::unique_ptr<QueryResult> result(CharacterDatabase.Query("SELECT guid, world_phase_mask FROM characters"));
@@ -468,10 +470,13 @@ void ObjectMgr::LoadPlayerPhaseFromDb()
 
 uint32 ObjectMgr::GetPlayerWorldMaskByGUID(const uint64 guid)
 {
+    std::lock_guard<std::mutex> lock(m_PlayerPhasesLock);
     return m_PlayerPhases[GUID_LOPART(guid)];
 }
 void ObjectMgr::SetPlayerWorldMask(const uint64 guid, uint32 newWorldMask)
 {
+    std::lock_guard<std::mutex> lock(m_PlayerPhasesLock);
+
     if (m_PlayerPhases[GUID_LOPART(guid)] == newWorldMask)
         return;
 
@@ -3755,6 +3760,23 @@ void ObjectMgr::LoadQuests()
         if (qinfo->m_SpecialFlags > QUEST_SPECIAL_FLAG_DB_ALLOWED)
             sLog.outErrorDb("Quest %u has `SpecialFlags` = %u, above max flags not allowed for database.", qinfo->GetQuestId(), qinfo->m_SpecialFlags);
 
+        if (qinfo->HasSpecialFlag(QUEST_SPECIAL_FLAG_DAILY) && qinfo->IsWeekly())
+        {
+            // A quest cannot have two cadence owners. Keep the established
+            // daily behavior and reject only the newly-invalid weekly bit.
+            sLog.outErrorDb("Quest %u has both daily and weekly SpecialFlags; weekly flag ignored.", qinfo->GetQuestId());
+            qinfo->m_SpecialFlags &= ~QUEST_SPECIAL_FLAG_WEEKLY;
+        }
+
+        if (qinfo->IsWeekly() && !qinfo->IsRepeatable())
+        {
+            // Weekly rewards are a cadence on top of the repeatable quest
+            // lifecycle. Repair legacy/mistyped templates in memory rather
+            // than allowing the first reward to make them permanently done.
+            sLog.outErrorDb("Quest %u has WEEKLY without REPEATABLE; REPEATABLE flag added in memory.", qinfo->GetQuestId());
+            qinfo->SetSpecialFlag(QUEST_SPECIAL_FLAG_REPEATABLE);
+        }
+
         if (qinfo->HasQuestFlag(QUEST_FLAGS_AUTO_REWARDED))
         {
             // at auto-reward can be rewarded only RewChoiceItemId[0]
@@ -6205,6 +6227,8 @@ void ObjectMgr::LoadPetNumber()
 
 uint32 ObjectMgr::GeneratePetNumber()
 {
+    std::lock_guard<std::mutex> guard(m_PetNumberLock);
+
     m_NextPetNumber = sCharacterDatabaseCache.GetNextAvailablePetNumber(m_NextPetNumber);
     return m_NextPetNumber++;
 }
@@ -9663,22 +9687,47 @@ void ObjectMgr::LoadShop()
 			}
 
             CachedEntry.resize(1024);
-            int32 FormatResult = std::snprintf(CachedEntry.data(), 1024, "Entries:%u=%u=%s=%u=%s=%u=%u=%u=%.02f=%.02f=%.02f=%.02f=%u=%s=%u",
+            // patch7-A live client expects 13 `=`-delimited fields per
+            // Shop_ProcessEntries (Turtle_ShopUI.lua line 251+ in patch7.mpq):
+            //   info[1]  category
+            //   info[2]  subcategory  (tonumber — MUST be a number, not nil)
+            //   info[3]  name
+            //   info[4]  price
+            //   info[5]  text         (description; raw string)
+            //   info[6]  id           (= item entry; used in SetHyperlink "item:N:0:0:0")
+            //   info[7]  modelid
+            //   info[8]  itemid       (item display id)
+            //   info[9]  posx
+            //   info[10] posy
+            //   info[11] posz
+            //   info[12] rotation
+            //   info[13] holiday      (tonumber — MUST be a number; 0 = always-available)
+            // Pre-fix server sent 12 fields with Entry.Item at info[5] and
+            // Entry.ItemDisplayID at info[7] → SetHyperlink got the display id
+            // which fails as "Unknown link type". Plus holiday was missing →
+            // tonumber(nil) → entry.holiday > 0 throws "compare number with nil".
+            // patch7 client stores info[5] in entry["text"] but doesn't render
+            // it (tooltips come from SetHyperlink at line 285). WoW's addon
+            // message cap is 254 bytes — including pProto->Description here
+            // overflows for items with long descriptions (e.g. Race Change
+            // Tokens at 208 chars push total to ~377 bytes), truncating the
+            // message mid-description and losing info[6]+ → entry.id = nil →
+            // SetHyperlink("item:nil:0:0:0") fails as "Unknown link type" at
+            // line 285. Send empty string at info[5] so the message fits.
+			int32 FormatResult = std::snprintf(CachedEntry.data(), 1024, "Entries:%u=%u=%s=%u==%u=%u=%u=%.02f=%.02f=%.02f=%.02f=%u",
                 Entry.Category,
-                0, // TODO: subcategory
-                ItemName.c_str(),
+                0u,                         // 2: subcategory (server has no per-row subcategory; default 0)
+				ItemName.c_str(),
                 Entry.Price,
-                pProto->Description.c_str(),
-                Entry.Item,
+                                            // 5: description — empty (see comment above)
+                Entry.Item,                 // 6: actual item entry — used in SetHyperlink
                 Entry.ModelID,
                 Entry.ItemDisplayID,
                 Entry.Position.x,
                 Entry.Position.y,
                 Entry.Position.z,
                 Entry.Rotation,
-                0, // TODO: holiday
-                "", // TODO: colors
-                0); // TODO: gender
+                0u);                        // 13: holiday (server has no holiday-gating; 0 = always-available)
 
             MANGOS_ASSERT(FormatResult > 0);
             if (FormatResult > 1022)
@@ -10175,38 +10224,31 @@ ChatChannelsEntry const* ObjectMgr::GetChannelEntryFor(std::string const& name)
 {
     for (auto const& itr : m_chatChannelsMap)
     {
-        for (std::string const& entryName : itr.second.name)
+        // need to remove %s from entryName if it exists before we match
+        for (const auto loc : itr.second.name)
         {
+            std::string entryName(loc);
+            std::size_t removeString = entryName.find("%s");
+
             // Not loaded locale
             if (entryName.empty())
                 continue;
 
-            std::size_t const zoneMarker = entryName.find("%s");
-            if (zoneMarker == std::string::npos)
-            {
-                if (entryName == name)
-                    return &itr.second;
-                continue;
-            }
+            if (removeString != std::string::npos)
+                entryName.replace(removeString, 2, "");
 
-            std::string const prefix = entryName.substr(0, zoneMarker);
-            std::string const suffix = entryName.substr(zoneMarker + 2);
-            if (name.size() < prefix.size() + suffix.size())
-                continue;
-
-            if (name.compare(0, prefix.size(), prefix) == 0 &&
-                name.compare(name.size() - suffix.size(), suffix.size(), suffix) == 0)
+            if (name.find(entryName) != std::string::npos)
                 return &itr.second;
         }
 
         // search in shortcut name
-        for (std::string const& shortcut : itr.second.shortcut)
+        for (const auto loc : itr.second.shortcut)
         {
             // Not loaded locale
-            if (shortcut.empty())
+            if (loc.empty())
                 continue;
 
-            if (shortcut == name)
+            if (loc == name)
                 return &itr.second;
         }
     }

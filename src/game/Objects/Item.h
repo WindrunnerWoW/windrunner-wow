@@ -240,15 +240,23 @@ class Item : public Object
 {
     public:
         static Item* CreateItem(uint32 item, uint32 count, Player const* player = nullptr);
+        static Item* CreateItem(uint32 item, uint32 count, ObjectGuid ownerGuid);
         Item* CloneItem(uint32 count, Player const* player = nullptr) const;
 
         Item();
         virtual ~Item();
+        // bot calls item->SetUsedInSpell(true) when queued.
+        // Penqle has no equivalent; stub no-op.
+        void SetUsedInSpell(bool /*used*/) {}
 
         virtual bool Create(uint32 guidlow, uint32 itemid, ObjectGuid ownerGuid = ObjectGuid());
         void RemoveFromWorld() override;
 
         ItemPrototype const* GetProto() const;
+        // AzerothCore spelling.
+#ifndef ENABLE_ELUNA
+        ItemPrototype const* GetTemplate() const { return GetProto(); }
+#endif
         bool ChangeEntry(ItemPrototype const* pNewProto);
 
         ObjectGuid const& GetOwnerGuid() const { return GetGuidValue(ITEM_FIELD_OWNER); }
@@ -282,6 +290,8 @@ class Item : public Object
         }
 
         bool IsBag() const { return GetProto()->InventoryType == INVTYPE_BAG; }
+        bool IsLocked() const { return GetProto()->LockID && !HasFlag(ITEM_FIELD_FLAGS, ITEM_DYNFLAG_UNLOCKED); }
+        bool IsNotEmptyBag() const;
         bool IsQuiver() const { return GetProto()->InventoryType == INVTYPE_BAG && GetProto()->Class == ITEM_CLASS_QUIVER; }
         bool IsBroken() const { return GetUInt32Value(ITEM_FIELD_MAXDURABILITY) > 0 && GetUInt32Value(ITEM_FIELD_DURABILITY) == 0; }
         bool CanBeTraded() const;

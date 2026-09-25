@@ -32,7 +32,6 @@
 #include "Log.h"
 #include "Opcodes.h"
 #include "WorldSession.h"
-#include "HeadlessSessionMgr.h"
 #include "WorldPacket.h"
 #include "Weather.h"
 #include "Player.h"
@@ -69,6 +68,7 @@
 #include "LFTMgr.h"
 #include "AutoBroadCastMgr.h"
 #include "Transports/TransportMgr.h"
+// PlayerBotMgr.h removed — Penqle stub binned for cmangos port
 #include "ZoneScriptMgr.h"
 #include "CharacterDatabaseCache.h"
 #include "CreatureGroups.h"
@@ -92,6 +92,7 @@
 #include "Logging/DatabaseLogger.hpp"
 #include "SuspiciousStatisticMgr.h"
 #include "HttpApi/ApiServer.hpp"
+#include "HttpApi/Authorizers/ApiKeyAuthorizer.hpp"
 #include "SocialMgr.h"
 #include "Shop/ShopMgr.h"
 #include "ChannelBroadcaster.h"
@@ -99,6 +100,12 @@
 #include "PerformanceMonitor.h"
 
 #include <filesystem>
+
+#ifdef ENABLE_ELUNA
+#include "LuaEngine.h"
+#include "ElunaConfig.h"
+#include "ElunaLoader.h"
+#endif
 
 #ifdef USING_DISCORD_BOT
 #include "DiscordBot/Bot.hpp"
@@ -140,6 +147,33 @@ float  World::m_relocation_lower_limit_sq = 10.f * 10.f;
 uint32 World::m_relocation_ai_notify_delay = 1000u;
 
 using namespace std::literals::chrono_literals;
+
+namespace
+{
+    struct WorldAdmissionLogLimiter
+    {
+        std::mutex lock;
+        std::chrono::steady_clock::time_point nextReport;
+        uint32 suppressed = 0;
+    };
+
+    bool AllowWorldAdmissionLog(uint32& suppressed)
+    {
+        static WorldAdmissionLogLimiter limiter;
+        std::lock_guard<std::mutex> guard(limiter.lock);
+        auto const now = std::chrono::steady_clock::now();
+        if (limiter.nextReport.time_since_epoch().count() == 0 || now >= limiter.nextReport)
+        {
+            suppressed = limiter.suppressed;
+            limiter.suppressed = 0;
+            limiter.nextReport = now + 60s;
+            return true;
+        }
+
+        ++limiter.suppressed;
+        return false;
+    }
+}
 
 void LoadGameObjectModelList();
 
@@ -186,12 +220,30 @@ World::World():
 
     m_timeRate = 1.0f;
     m_charDbWorkerThread    = nullptr;
-    m_headlessSessionMgr = std::make_unique<HeadlessSessionMgr>(*this);
 }
 
 /// World destructor
 World::~World()
 {
+}
+
+// return Penqle's existing sLFGMgr.
+LFGQueue& World::GetLFGQueue()
+{
+    return sLFGMgr;
+}
+
+// World::GetGraveyardManager stub returns empty map (Penqle uses multimap).
+// GetGraveyardMap() is templated in the header; only its instance is created here.
+World::WorldGraveyardManagerStub& World::GetGraveyardManager()
+{
+    static WorldGraveyardManagerStub s;
+    return s;
+}
+
+uint32 World::GetCurrentMSTime() const
+{
+    return WorldTimer::getMSTime();
 }
 
 void World::Shutdown()
@@ -220,6 +272,12 @@ AccountDataWrapper::~AccountDataWrapper()
 
 void World::InternalShutdown()
 {
+	// ProcessAsyncPackets() iterates m_sessions on its own thread with no lock,
+	// so it must be joined before the deletion loop below starts erasing entries
+	// out from under it.
+	if (m_asyncPacketsThread.joinable())
+	    m_asyncPacketsThread.join();
+
 	///- Empty the kicked session set
 	while (!m_sessions.empty())
 	{
@@ -227,8 +285,6 @@ void World::InternalShutdown()
 		delete m_sessions.begin()->second;
 		m_sessions.erase(m_sessions.begin());
 	}
-
-    m_headlessSessionMgr->Shutdown();
 
 	CliCommandHolder* command = nullptr;
 	while (cliCmdQueue.next(command))
@@ -252,9 +308,6 @@ void World::InternalShutdown()
 
     if (m_autoPDumpThread.joinable())
         m_autoPDumpThread.join();
-
-    if (m_asyncPacketsThread.joinable())
-        m_asyncPacketsThread.join();
 
     if (m_shopThread.joinable())
         m_shopThread.join();
@@ -296,50 +349,6 @@ void World::AddSession(WorldSession* s)
     addSessQueue.add(s);
 }
 
-HeadlessSessionStartResult World::StartHeadlessSession(uint32 accountId, ObjectGuid characterGuid,
-    LocaleConstant locale, std::string const& tag)
-{
-    return m_headlessSessionMgr->Start(accountId, characterGuid, locale, tag);
-}
-
-bool World::StopHeadlessSession(ObjectGuid characterGuid, bool save)
-{
-    return m_headlessSessionMgr->Stop(characterGuid, save);
-}
-
-HeadlessSessionState World::GetHeadlessSessionState(ObjectGuid characterGuid) const
-{
-    return m_headlessSessionMgr->GetState(characterGuid);
-}
-
-void World::HandleHeadlessLoginCallback(LoginQueryHolder* holder)
-{
-    m_headlessSessionMgr->HandleLoginCallback(holder);
-}
-
-bool World::ReclaimHeadlessSession(ObjectGuid characterGuid, WorldSession* session,
-    WorldSession* replacement, uint32 accountId)
-{
-    return m_headlessSessionMgr->ReclaimForNetwork(characterGuid, session, replacement, accountId);
-}
-
-void World::StopHeadlessSessionsForAccount(uint32 accountId, bool save)
-{
-    m_headlessSessionMgr->StopForAccount(accountId, save);
-}
-
-bool World::HasOtherSessionForAccount(uint32 accountId, WorldSession const* excluded) const
-{
-    for (auto const& entry : m_sessions)
-    {
-        if (entry.second && entry.second != excluded &&
-            entry.second->GetAccountId() == accountId)
-            return true;
-    }
-
-    return false;
-}
-
 void World::AddSession_(WorldSession* s)
 {
     MANGOS_ASSERT(s);
@@ -369,7 +378,10 @@ void World::AddSession_(WorldSession* s)
             if (RemoveQueuedSession(old->second))
                 decrease_session = false;
             if (!old->second->ForcePlayerLogoutDelay())
+            {
+                DecrementIpConnection(old->second->GetBinaryAddress());
                 delete old->second;
+            }
         }
     }
 
@@ -402,7 +414,30 @@ void World::AddSession_(WorldSession* s)
     uint32 currentPop = s->sessionDbcLocaleRaw == LOCALE_zhCN ? currentNonRegionalPop : currentRegionalPop;
     uint32 maxPop = s->sessionDbcLocaleRaw == LOCALE_zhCN ? maxNonRegionalPop : maxRegionalPop;
 
-    if ((currentPop >= maxPop || GetActiveSessionCount() >= hardPlayerLimit) && !CanSkipQueue(s))
+    bool const shouldQueue = (currentPop >= maxPop || GetActiveSessionCount() >= hardPlayerLimit) && !CanSkipQueue(s);
+    if (shouldQueue && !CanAddQueuedSession(s))
+    {
+        // The session has already been included in m_sessions/m_Ipconnections
+        // above, so undo both counters before releasing it. This keeps active
+        // and per-IP accounting identical to the normal disconnect path.
+        WorldPacket packet(SMSG_AUTH_RESPONSE, 1);
+        packet << uint8(AUTH_UNAVAILABLE);
+        s->SendPacket(&packet);
+        s->KickPlayer();
+
+        m_sessions.erase(s->GetAccountId());
+        DecrementIpConnection(s->GetBinaryAddress());
+
+        uint32 suppressed = 0;
+        if (AllowWorldAdmissionLog(suppressed))
+            BASIC_LOG("PlayerQueue: rejecting authenticated session from %s because the login queue is full or its per-IP limit was reached (suppressed %u similar rejections in the last minute)",
+                      s->GetRemoteAddress().c_str(), suppressed);
+
+        delete s;
+        return;
+    }
+
+    if (shouldQueue)
     {
         AddQueuedSession(s);
         UpdateMaxSessionCounters();
@@ -470,6 +505,34 @@ uint32 World::GetConnectionCountByIp(uint32 ip) const
     if (itr != m_Ipconnections.end())
         return itr->second;
     return 0;
+}
+
+bool World::CanAddQueuedSession(WorldSession const* session) const
+{
+    uint32 const maxQueuedSessions = getConfig(CONFIG_UINT32_NETWORK_LOGIN_QUEUE_MAX_SESSIONS);
+    if (maxQueuedSessions && GetQueuedSessionCount() >= maxQueuedSessions)
+        return false;
+
+    uint32 const maxQueuedSessionsPerIp = getConfig(CONFIG_UINT32_NETWORK_LOGIN_QUEUE_MAX_SESSIONS_PER_IP);
+    if (!maxQueuedSessionsPerIp)
+        return true;
+
+    uint32 queuedForIp = 0;
+    if (getConfig(CONFIG_BOOL_ENABLE_PRIORITY_QUEUE))
+    {
+        for (uint32 index = 0; index < 2; ++index)
+            for (auto const& entry : m_priorityQueue[index])
+                if (entry.second->GetBinaryAddress() == session->GetBinaryAddress())
+                    ++queuedForIp;
+    }
+    else
+    {
+        for (WorldSession* queuedSession : m_QueuedSessions)
+            if (queuedSession->GetBinaryAddress() == session->GetBinaryAddress())
+                ++queuedForIp;
+    }
+
+    return queuedForIp < maxQueuedSessionsPerIp;
 }
 
 bool World::IsAprilFools() const
@@ -1083,6 +1146,7 @@ void World::LoadConfigSettingsFromFile(bool reload)
     setConfig(CONFIG_BOOL_CLEAN_CHARACTER_DB, "CleanCharacterDB", true);
     setConfig(CONFIG_BOOL_GRID_UNLOAD, "GridUnload", true);
     setConfig(CONFIG_BOOL_CLEANUP_TERRAIN, "CleanupTerrain", true);
+    setConfig(CONFIG_BOOL_MMAP_TILE_UNLOAD, "MMapTileUnload", false);
     setConfigPos(CONFIG_UINT32_INTERVAL_SAVE, "PlayerSave.Interval", 15 * MINUTE * IN_MILLISECONDS);
     setConfigMinMax(CONFIG_UINT32_MIN_LEVEL_STAT_SAVE, "PlayerSave.Stats.MinLevel", 0, 0, MAX_LEVEL);
     setConfig(CONFIG_BOOL_STATS_SAVE_ONLY_ON_LOGOUT, "PlayerSave.Stats.SaveOnlyOnLogout", true);
@@ -1112,6 +1176,16 @@ void World::LoadConfigSettingsFromFile(bool reload)
     setConfig(CONFIG_BOOL_ALLOW_TWO_SIDE_ADD_FRIEND,          "AllowTwoSide.AddFriend", false);
 
     setConfig(CONFIG_FLOAT_MAX_FACTION_IMBALANCE, "MaxFactionImbalance", 0.1f);
+    setConfig(CONFIG_FLOAT_SCALAR_MIN_5MAN_HP,  "ScalarMin5ManHP",  0.6f);
+    setConfig(CONFIG_FLOAT_SCALAR_MIN_5MAN_DMG, "ScalarMin5ManDMG", 0.4f);
+    setConfig(CONFIG_FLOAT_SCALAR_MIN_10MAN_HP,  "ScalarMin10ManHP",  0.6f);
+    setConfig(CONFIG_FLOAT_SCALAR_MIN_10MAN_DMG, "ScalarMin10ManDMG", 0.4f);
+    setConfig(CONFIG_FLOAT_SCALAR_MIN_20MAN_HP,  "ScalarMin20ManHP",  0.6f);
+    setConfig(CONFIG_FLOAT_SCALAR_MIN_20MAN_DMG, "ScalarMin20ManDMG", 0.4f);
+    setConfig(CONFIG_FLOAT_SCALAR_MIN_40MAN_HP,  "ScalarMin40ManHP",  0.6f);
+    setConfig(CONFIG_FLOAT_SCALAR_MIN_40MAN_DMG, "ScalarMin40ManDMG", 0.4f);
+
+    setConfig(CONFIG_BOOL_AUTOSCALER_ENABLE, "AutoScalerEnable", false);
 
     setConfig(CONFIG_UINT32_STRICT_PLAYER_NAMES,  "StrictPlayerNames",  0);
     setConfig(CONFIG_UINT32_STRICT_CHARTER_NAMES, "StrictCharterNames", 0);
@@ -1402,12 +1476,26 @@ void World::LoadConfigSettingsFromFile(bool reload)
     setConfig(CONFIG_UINT32_MAILSPAM_EXPIRE_SECS, "MailSpam.ExpireSecs", 0);
     setConfig(CONFIG_UINT32_MAILSPAM_MAX_MAILS, "MailSpam.MaxMails", 2);
 	setConfig(CONFIG_UINT32_MAILSPAM_LEVEL, "MailSpam.Level", 1);
-	setConfig(CONFIG_UINT32_MAILSPAM_ACCOUNT_LEVEL, "MailSpam.AccountCharLevel", 1);
+    setConfig(CONFIG_UINT32_MAILSPAM_ACCOUNT_LEVEL, "MailSpam.AccountCharLevel", 1);
     setConfig(CONFIG_UINT32_MAILSPAM_MONEY, "MailSpam.Money", 0);
     setConfig(CONFIG_BOOL_MAILSPAM_ITEM, "MailSpam.Item", false);
     setConfig(CONFIG_UINT32_COD_FORCE_TAG_MAX_LEVEL, "Mails.COD.ForceTag.MaxLevel", 0);
 
+    setConfigMinMax(CONFIG_UINT32_NETWORK_SESSION_INBOUND_QUEUE_MAX_PACKETS,
+                    "Network.Session.InboundQueue.MaxPackets", 512, 1, 100000);
+    setConfigMinMax(CONFIG_UINT32_NETWORK_SESSION_INBOUND_QUEUE_MAX_BYTES,
+                    "Network.Session.InboundQueue.MaxBytes", 4 * 1024 * 1024, 64 * 1024, 64 * 1024 * 1024);
+    setConfigMinMax(CONFIG_UINT32_NETWORK_SOCKET_OUTBOUND_QUEUE_MAX_PACKETS,
+                    "Network.Socket.OutboundQueue.MaxPackets", 1024, 1, 100000);
+    setConfigMinMax(CONFIG_UINT32_NETWORK_SOCKET_OUTBOUND_QUEUE_MAX_BYTES,
+                    "Network.Socket.OutboundQueue.MaxBytes", 8 * 1024 * 1024, 64 * 1024, 64 * 1024 * 1024);
+    setConfigMinMax(CONFIG_UINT32_NETWORK_LOGIN_QUEUE_MAX_SESSIONS,
+                    "Network.LoginQueue.MaxSessions", 1024, 0, 100000);
+    setConfigMinMax(CONFIG_UINT32_NETWORK_LOGIN_QUEUE_MAX_SESSIONS_PER_IP,
+                    "Network.LoginQueue.MaxSessionsPerIp", 4, 0, 100000);
+
     setConfigMinMax(CONFIG_UINT32_ASYNC_TASKS_THREADS_COUNT,       "AsyncTasks.Threads", 1, 1, 20);
+    setConfigMinMax(CONFIG_UINT32_ASYNC_TASKS_MAX_QUEUE,            "AsyncTasks.MaxQueue", 4096, 0, 100000);
     setConfig(CONFIG_BOOL_KICK_PLAYER_ON_BAD_PACKET,               "Network.KickOnBadPacket", false);
     setConfig(CONFIG_UINT32_PACKET_BCAST_THREADS,                  "Network.PacketBroadcast.Threads", 0);
     setConfig(CONFIG_UINT32_PACKET_BCAST_FREQUENCY,                "Network.PacketBroadcast.Frequency", 50);
@@ -1474,6 +1562,7 @@ void World::LoadConfigSettingsFromFile(bool reload)
     setConfig(CONFIG_UINT32_TRANSMOG_REQ_ITEM, "Transmog.ReqItemID", 0);
     setConfig(CONFIG_UINT32_TRANSMOG_REQ_ITEM_COUNT, "Transmog.ReqItemCount", 1);
     setConfig(CONFIG_FLOAT_TRANSMOG_REQ_MONEY_RATE, "Transmog.ReqMoneyRate", 0.0);
+    setConfig(CONFIG_FLOAT_LEECH_AMOUNT, "Leech.Amount", 0.10f);
     setConfig(CONFIG_BOOL_STATIC_OBJECT_LOS, "StaticObjectLOS", true);
     setConfig(CONFIG_BOOL_DUAL_SPEC, "DualSpec", false);
     
@@ -1489,6 +1578,7 @@ void World::LoadConfigSettingsFromFile(bool reload)
 
     setConfig(CONFIG_BOOL_ITEM_LOG_RESTORE_QUEST_ITEMS, "ItemRestoreLog.QuestItems", false);
     setConfig(CONFIG_BOOL_LOAD_LOCALES, "LoadLocales", true);
+    setConfig(CONFIG_BOOL_LOAD_SPELLS_FROM_SQL, "LoadSpellsFromSql", false);
 
     setConfig(CONFIG_BOOL_ENABLE_FACTION_BALANCE, "FactionBalance.Enable", false);
     setConfig(CONFIG_BOOL_BLOCK_ALL_HANZI, "Hanzi.BlockAll", false);
@@ -1530,6 +1620,17 @@ void World::LoadConfigSettingsFromFile(bool reload)
     setConfig(CONFIG_UINT32_AUTO_PDUMP_DELETE_AFTER_DAYS, "AutoPDump.DeleteAfterDays", 60);
 
     setConfig(CONFIG_BOOL_PERFORMANCE_ENABLE, "Perf.Enable", true);
+    setConfig(CONFIG_BOOL_LEECH_ENABLE, "Leech.Enable", false);
+    setConfig(CONFIG_BOOL_LEECH_PVE_ONLY, "Leech.PvEOnly", true);
+    setConfig(CONFIG_BOOL_LEECH_REAL_PLAYERS_ONLY, "Leech.RealPlayersOnly", true);
+    setConfig(CONFIG_BOOL_LEECH_SOLO_ONLY, "Leech.SoloOnly", true);
+    setConfig(CONFIG_BOOL_LEECH_DUNGEON_ONLY, "Leech.DungeonOnly", true);
+    setConfig(CONFIG_BOOL_SOLO_DUNGEON_REPOP_ALIVE, "SoloDungeonRepopAlive.Enable", false);
+    setConfig(CONFIG_BOOL_LFT_BOTFILL_ENABLE, "LFT.BotFill.Enable", false);
+    setConfig(CONFIG_UINT32_LFT_BOTFILL_DELAY, "LFT.BotFill.DelaySeconds", 90);
+    setConfig(CONFIG_UINT32_LFT_BOTFILL_LEVEL_BELOW, "LFT.BotFill.LevelRangeBelow", 2);
+    setConfig(CONFIG_UINT32_LFT_BOTFILL_LEVEL_BELOW_HEALER, "LFT.BotFill.LevelRangeBelowHealer", 4);
+    setConfig(CONFIG_UINT32_LFT_BOTFILL_LEVEL_ABOVE, "LFT.BotFill.LevelRangeAbove", 6);
 
     setConfig(CONFIG_UINT32_PERFORMANCE_REPORT_INTERVAL, "Perf.ReportInterval", 600);
     setConfig(CONFIG_UINT32_MAX_GOLD_TRANSFERRED, "Transfer.MaxGold", 300000);
@@ -1892,8 +1993,9 @@ void LoadPlayerEggLoot();
     /// Initialize the World
     void World::SetInitialWorldSettings()
     {
-        const bool enableHttpApi = sConfig.GetIntDefault("HttpApi.Enable", 1) != 0;
-        if (enableHttpApi)
+        const bool enableHttpApi = sConfig.GetIntDefault("HttpApi.Enable", 0) != 0;
+        const std::string transferKey = sConfig.GetStringDefault("HttpApi.TransferKey", "");
+        if (enableHttpApi && HttpApi::ApiKeyAuthorizer::IsStrongKey(transferKey))
         {
             //Have to do it like this to get proper thread handling in the threadpool of the HTTPS api backend to allow querying on any post or get handlers.
             HttpApi::ApiServer::SetInitThreadCallback([]() { mysql_thread_init(); });
@@ -1903,6 +2005,8 @@ void LoadPlayerEggLoot();
             HttpApi::RegisterControllers();
             _server->Start(sConfig.GetStringDefault("HttpApi.BindIP", "127.0.0.1"), sConfig.GetIntDefault("HttpApi.BindPort", 50000));
         }
+        else if (enableHttpApi)
+            sLog.out(LOG_API, "HTTP API server disabled: HttpApi.TransferKey must be a strong key of at least 32 printable characters.");
         else
             sLog.outString("HTTP API server disabled by config.");
 ///- Initialize the random number generator
@@ -1961,6 +2065,22 @@ void LoadPlayerEggLoot();
 
     CheckEggExploit();
 
+    sLog.outString("Loading script names...");
+    sScriptMgr.LoadScriptNames();
+
+    if (getConfig(CONFIG_BOOL_LOAD_SPELLS_FROM_SQL))
+    {
+        sLog.outString("Loading spells from `spell_template`...");
+        sSpellMgr.LoadSpellsFromSpellTemplate();
+    }
+    else
+    {
+        sLog.outString("Loading Spell.dbc...");
+        LoadSpellDBCStore(m_dataPath);
+        sLog.outString("Loading spells...");
+        sSpellMgr.LoadSpells();
+    }
+
     ///- Loads existing IDs in the database.
     sLog.outString("Loading existing IDs in the database...");
     sObjectMgr.LoadAllIdentifiers();
@@ -1984,10 +2104,17 @@ void LoadPlayerEggLoot();
 
     sLog.outString("Loading chat channels...");
     sObjectMgr.LoadChatChannels();
-    sLog.outString("Loading script names...");
-    sScriptMgr.LoadScriptNames();
-    sLog.outString("Loading spells...");
-    sSpellMgr.LoadSpells();
+    // No LoadSpells() here any more: spell loading moved into the
+    // LoadSpellsFromSql switch further up (CONFIG_BOOL_LOAD_SPELLS_FROM_SQL).
+    // Calling it here as well would load them a second time.
+    //
+    // CAUTION before flipping that switch: its DBC branch calls
+    // LoadSpellDBCStore() from up there, which in OUR tree runs BEFORE
+    // LoadDBCStores() below - upstream has those two the other way round,
+    // because this startup order was reworked here (see the notes further
+    // down about what has to run after LoadDBCStores). With
+    // LoadSpellsFromSql = 1 the DBC branch never runs and the difference is
+    // dormant; it has to be settled before switching to DBC loading.
     sLog.outString("Loading factions...");
     sObjectMgr.LoadFactions();
     sLog.outString("Loading sounds...");
@@ -2031,6 +2158,17 @@ void LoadPlayerEggLoot();
 
     ///- Init highest guids before any guid using table loading to prevent using not initialized guids in some code.
     sObjectMgr.SetHighestGuids();                           // must be after packing instances
+
+#ifdef ENABLE_ELUNA
+    ELUNA_LOG_INFO("Loading Eluna config...");
+    sElunaConfig->Initialize();
+    if (sElunaConfig->IsElunaEnabled())
+    {
+        ELUNA_LOG_INFO("Loading Lua scripts...");
+        sElunaLoader->LoadScripts();
+    }
+#endif
+
     sLog.outString("Loading broadcast texts...");
     sObjectMgr.LoadBroadcastTexts();
     sLog.outString("Loading page texts...");
@@ -2209,6 +2347,16 @@ void LoadPlayerEggLoot();
     sObjectMgr.LoadGuildHouses();
     sLog.outString("Loading guild houses...");
 	sGuildMgr.LoadPetitions();
+
+#ifdef ENABLE_ELUNA
+    if (sElunaConfig->IsElunaEnabled())
+    {
+        ELUNA_LOG_INFO("Starting Eluna world state...");
+        m_elunaInfo = { ElunaInfoKey::MakeGlobalKey(0) };
+        sElunaMgr->Create(nullptr, m_elunaInfo);
+    }
+#endif
+
     sLog.outString("Loading groups...");
 	sObjectMgr.LoadGroups();
     sLog.outString("Loading reserved player names...");
@@ -2345,6 +2493,9 @@ void LoadPlayerEggLoot();
 	sObjectMgr.LoadPlayerPhaseFromDb();
     sLog.outString("Caching player pets...");
 	sCharacterDatabaseCache.LoadAll();
+    // Penqle's "Loading player bot manager... / sPlayerBotMgr.Load()" removed.
+    // cmangos's RandomPlayerbotMgr is instantiated by InitPlayerbotsAtStartup(), called near
+    // the end of this function.
     sLog.outString("Loading faction change reputations...");
 	sObjectMgr.LoadFactionChangeReputations();
     sLog.outString("Loading faction change spells...");
@@ -2437,10 +2588,31 @@ void LoadPlayerEggLoot();
             honorUpdateFile << "0";
     }
 
+    // Initialize bot config + managers. InitPlayerbotsAtStartup (HostHooks.cpp) loads
+    // aiplayerbot.conf, instantiates sPlayerbotAIConfig / sRandomPlayerbotMgr / sAhBot, and runs
+    // PlayerbotAIConfig::Initialize() — which builds the equipment cache (RandomItemMgr::Init →
+    // BuildEquipCache, scans sItemStorage) and validates the premade talent specs (LoadTalentSpecs,
+    // reads Talent.dbc). It MUST run after LoadDBCStores() and LoadItemPrototypes() above, otherwise
+    // those caches build against empty data on first boot. No-op if AiPlayerbot.Enabled = 0.
+    // The module registers its hook objects here; the work it used to do in
+    // FinalizePlayerbotsPostPlayerInfo() now runs from WorldScript::OnStartup
+    // just below, which is the same point in the sequence.
+    InitPlayerbotsAtStartup();
+
+    // Moved here from the tail of DetectDBCLang(). That helper runs right after
+    // LoadDBCStores() and well before LoadItemPrototypes(), so a module doing any
+    // item work in OnStartup saw empty caches. Here it sits at the end of world
+    // setup, still inside the loading-time measurement, which is where
+    // AzerothCore fires it.
     ScriptRegistry<WorldScript>::ForEachEnabledHook(WORLDHOOK_ON_STARTUP, [](WorldScript* script)
     {
         script->OnStartup();
     });
+
+#ifdef ENABLE_ELUNA
+    if (Eluna* eluna = GetEluna())
+        eluna->OnConfigLoad(false);
+#endif
 
     sLog.outString("Current content phase is set to %u.", GetContentPhase() + 1);
     uint32 uStartInterval = WorldTimer::getMSTimeDiff(uStartTime, WorldTimer::getMSTime());
@@ -2488,6 +2660,7 @@ void World::DetectDBCLang()
     m_defaultDbcLocale = LocaleConstant(default_locale);
 
     sLog.outString("Using %s DBC locale as default.", localeNames[m_defaultDbcLocale]);
+    
 }
 
 void World::ApiServerDeleter::operator()(HttpApi::ApiServer* p)
@@ -2503,8 +2676,11 @@ void World::ProcessAsyncPackets()
         do
         {
             std::this_thread::sleep_for(std::chrono::milliseconds(20));
-        } while (!m_canProcessAsyncPackets);
-        
+        } while (!m_canProcessAsyncPackets && !sWorld.IsStopped());
+
+        if (sWorld.IsStopped())
+            break;
+
         for (auto const& itr : m_sessions)
         {
             WorldSession* pSession = itr.second;
@@ -2528,6 +2704,81 @@ void TotalMoneyCallback(QueryResult* result, uint32 money)
     delete result;
 }
 
+
+// custom: AutoWorldBuff per-buff timer (2026-07-28) - see the call sites in
+// World::Update() and World.h's WorldBuffTimerState for context. Handles one
+// independent buff's warning/reroll/cast cycle; called once per configured
+// buff so they don't all fire simultaneously.
+void World::UpdateWorldBuffTimer(uint32 diff, WorldBuffTimerState& state, uint32 spellId,
+    std::string const& announceLabel, std::function<bool(Player*)> const& eligible)
+{
+    // One warning per cycle, shortly before the buff is renewed.
+    if (!state.warned && state.warningMs > 0 && state.timer <= state.warningMs)
+    {
+        state.warned = true;
+        uint32 warnMinutes = std::max<uint32>(1, state.warningMs / 60000);
+        SendWorldText(3 /* LANG_SYSTEMMESSAGE */,
+            string_format("{} will be refreshed in {} minute(s)!", announceLabel, warnMinutes).c_str());
+    }
+
+    if (state.timer <= diff)
+    {
+        uint32 minMs, maxMs;
+        if (state.firstSinceRestart)
+        {
+            // A short interval for the very first roll after a start, so that
+            // frequent restarts do not push the buffs back by a whole long
+            // interval every single time.
+            minMs = sConfig.GetIntDefault("AutoWorldBuff.FirstMinInterval", 600000);   // 10min
+            maxMs = sConfig.GetIntDefault("AutoWorldBuff.FirstMaxInterval", 7200000);  // 2h
+            state.firstSinceRestart = false;
+        }
+        else
+        {
+            minMs = sConfig.GetIntDefault("AutoWorldBuff.MinInterval", 3600000);  // 1h
+            maxMs = sConfig.GetIntDefault("AutoWorldBuff.MaxInterval", 10800000); // 3h
+        }
+        if (maxMs < minMs)
+            maxMs = minMs;
+        state.timer = minMs + (maxMs > minMs ? urand(0, maxMs - minMs) : 0);
+
+        state.warningMs = sConfig.GetIntDefault("AutoWorldBuff.WarningInterval", 600000); // 10min
+        if (state.warningMs >= state.timer)
+            state.warningMs = state.timer / 2; // Sicherheitsnetz falls Warnzeit > Intervall
+        state.warned = false;
+
+        uint32 buffedCount = 0;
+        for (SessionMap::const_iterator itr = m_sessions.begin(); itr != m_sessions.end(); ++itr)
+        {
+            WorldSession* worldBuffSession = itr->second;
+            if (!worldBuffSession)
+                continue;
+            Player* worldBuffPlayer = worldBuffSession->GetPlayer();
+            if (!worldBuffPlayer || !worldBuffPlayer->IsInWorld())
+                continue;
+
+            // Random bots sit on RNDBOT accounts; their session carries no
+            // username, so look it up by account id. The Discord bridge
+            // character on account DISCORD is a genuine session too, but not
+            // a player, so it is excluded as well.
+            std::string worldBuffAccName;
+            sAccountMgr.GetName(worldBuffSession->GetAccountId(), worldBuffAccName);
+            if (worldBuffAccName.rfind("RNDBOT", 0) == 0 || worldBuffAccName == "DISCORD")
+                continue;
+
+            if (eligible(worldBuffPlayer))
+            {
+                worldBuffPlayer->CastSpell(worldBuffPlayer, spellId, true);
+                ++buffedCount;
+            }
+        }
+
+        if (buffedCount)
+            SendWorldText(3 /* LANG_SYSTEMMESSAGE */, string_format("World buff refreshed: {}!", announceLabel).c_str());
+    }
+    else
+        state.timer -= diff;
+}
 
 /// Update the World !
 void World::Update(uint32 diff)
@@ -2614,6 +2865,15 @@ void World::Update(uint32 diff)
     sGuardMgr.Update(diff);
     sZoneScriptMgr.Update(diff);
     sDynamicVisMgr.UpdateVisibility(diff);
+
+#ifdef ENABLE_ELUNA
+    if (Eluna* eluna = GetEluna())
+    {
+        eluna->UpdateEluna(diff);
+        eluna->OnWorldUpdate(diff);
+    }
+#endif
+
 
     ///- Update groups with offline leaders
     if (m_timers[WUPDATE_GROUPS].Passed())
@@ -2738,8 +2998,168 @@ void World::Update(uint32 diff)
     else
         m_MaintenanceTimeChecker -= diff;
 
+    // PlayerBotMgr update removed — Penqle stub binned. cmangos's
+    // sRandomPlayerbotMgr.UpdateAI(diff) runs from the bot module WorldScript::OnUpdate.
+
     // Update AutoBroadcast
     sAutoBroadCastMgr.Update(diff);
+
+    // --- Custom: AutoWorldBuff. Periodically hands real online players - no
+    // bots, no Discord bridge character - Spirit of Zandalar (Stranglethorn
+    // Vale only), Warchief's Blessing (Horde only, Crossroads and Orgrimmar)
+    // and Rallying Cry of the Dragonslayer (BOTH factions, each in their own
+    // capital: Alliance in Stormwind, Horde in Orgrimmar - see the correction
+    // note at the call site).
+    // Each buff has its OWN independent timer rather than a shared one, by
+    // request: before that all three always arrived together. The very first
+    // roll after a start uses a SHORT interval (FirstMinInterval to
+    // FirstMaxInterval, 10 minutes to 2 hours by default) so that frequent
+    // restarts do not push the buffs back by a whole 1-3 hour interval every
+    // time. After that the normal, longer interval applies
+    // (MinInterval to MaxInterval).
+    // Siehe UpdateWorldBuffTimer() weiter unten. ---
+    if (sConfig.GetBoolDefault("AutoWorldBuff.Enable", false))
+    {
+        // Zonen-/Area-IDs aus turtle_world.area_template (2026-07-27):
+        // Stranglethorn Vale (33), Orgrimmar (1637) and Stormwind City (1519)
+        // are top level zone entries themselves (zone_id 0). The Crossroads is
+        // only an AREA inside the Barrens (entry 380, zone_id 17), which is why
+        // that one uses GetAreaId() rather than GetZoneId().
+        const uint32 ZONE_STRANGLETHORN_VALE = 33;
+        const uint32 ZONE_ORGRIMMAR = 1637;
+        const uint32 ZONE_STORMWIND_CITY = 1519;
+        const uint32 AREA_THE_CROSSROADS = 380;
+
+        UpdateWorldBuffTimer(diff, m_zandalarBuffTimer, 24425, "Spirit of Zandalar (in Stranglethorn Vale)",
+            [ZONE_STRANGLETHORN_VALE](Player* p) { return p->GetZoneId() == ZONE_STRANGLETHORN_VALE; });
+
+        UpdateWorldBuffTimer(diff, m_warchiefBuffTimer, 16609, "Warchief's Blessing (in Crossroads/Orgrimmar)",
+            [ZONE_ORGRIMMAR, AREA_THE_CROSSROADS](Player* p) {
+                return p->GetTeam() == HORDE && (p->GetAreaId() == AREA_THE_CROSSROADS || p->GetZoneId() == ZONE_ORGRIMMAR);
+            });
+
+        // Rallying Cry is NOT faction exclusive. The buff comes from the Onyxia
+        // and Nefarian heads, which are turned in in BOTH capitals - Horde in
+        // Orgrimmar, Alliance in Stormwind. It was wrongly limited to Alliance
+        // in Stormwind at first, on the assumption that it was the Alliance
+        // counterpart to Warchief's Blessing. Only Warchief's Blessing above
+        // is actually Horde exclusive.
+        UpdateWorldBuffTimer(diff, m_dragonslayerBuffTimer, 22888, "Rallying Cry of the Dragonslayer (in Stormwind City/Orgrimmar)",
+            [ZONE_STORMWIND_CITY, ZONE_ORGRIMMAR](Player* p) {
+                return (p->GetTeam() == ALLIANCE && p->GetZoneId() == ZONE_STORMWIND_CITY) ||
+                       (p->GetTeam() == HORDE && p->GetZoneId() == ZONE_ORGRIMMAR);
+            });
+    }
+
+    // --- Custom: AutoDonationPoints. Awards real online players - no bots and
+    // no Discord bridge character - donation points (shop_coins, the same
+    // table and currency ShopMgr uses) for every full hour spent online.
+    // Each account carries its own accumulator rather than sharing a single
+    // timer, so it does not matter when somebody logged in: everyone gets
+    // their own full hour of playing time before the next award.
+    //
+    // Progress is persisted in `donation_point_progress` in the login
+    // database. Before that it lived in memory only and reset to zero on
+    // EVERY restart - with frequent restarts a normal player practically
+    // never reached a full hour in one go, while the permanently connected
+    // Discord bridge was the only "session" running long enough to qualify.
+    // It is loaded once per account, the first time that account is seen
+    // after a start. It is written on every award and periodically besides,
+    // controlled by FlushIntervalMs, so that not every tick has to fire a
+    // query against the database. ---
+    if (sConfig.GetBoolDefault("AutoDonationPoints.Enable", false))
+    {
+        uint32 dpIntervalMs = sConfig.GetIntDefault("AutoDonationPoints.IntervalMs", 3600000); // 1h
+
+        // A zero here makes the award condition below true on every tick, which
+        // means two writes to the login database and a chat line per online
+        // player per tick - roughly sixty writes a second each. That saturates
+        // the connection pool, the world thread waits on it, and MySQL logs a
+        // row of "Aborted connection ... Got an error reading communication
+        // packets" as the dying server drops its handles. The warnings look
+        // like the cause and are the consequence. Fall back to the default
+        // rather than letting a stray value take the server down.
+        if (!dpIntervalMs)
+        {
+            sLog.outError("AutoDonationPoints.IntervalMs is 0, which would award every tick. Using 3600000 instead.");
+            dpIntervalMs = 3600000;
+        }
+        uint32 dpAmount = sConfig.GetIntDefault("AutoDonationPoints.Amount", 1);
+        uint32 dpFlushMs = sConfig.GetIntDefault("AutoDonationPoints.FlushIntervalMs", 300000); // 5min
+
+        bool dpShouldFlush = false;
+        if (m_donationPointFlushTimer <= diff)
+        {
+            m_donationPointFlushTimer = dpFlushMs;
+            dpShouldFlush = true;
+        }
+        else
+            m_donationPointFlushTimer -= diff;
+
+        for (SessionMap::const_iterator itr = m_sessions.begin(); itr != m_sessions.end(); ++itr)
+        {
+            WorldSession* dpSession = itr->second;
+            if (!dpSession)
+                continue;
+            Player* dpPlayer = dpSession->GetPlayer();
+            if (!dpPlayer || !dpPlayer->IsInWorld())
+                continue;
+
+            // Compare case insensitively: the Discord bridge account is spelled
+            // "discord" in this database while the comparison ran against
+            // "DISCORD", so the bridge of all things collected the points and
+            // its chat output turned up as "[Server]: You have ..." in the
+            // Discord channel. The same applies to the RNDBOT prefix.
+            std::string dpAccName;
+            sAccountMgr.GetName(dpSession->GetAccountId(), dpAccName);
+            for (char& dpNameChar : dpAccName)
+                if (dpNameChar >= 'a' && dpNameChar <= 'z')
+                    dpNameChar = dpNameChar - 'a' + 'A';
+            if (dpAccName.rfind("RNDBOT", 0) == 0 || dpAccName == "DISCORD")
+                continue;
+
+            uint32 dpAccountId = dpSession->GetAccountId();
+
+            // Load the persisted progress once, if this account has not been
+            // seen since the server started.
+            if (m_donationPointAccumulatorMs.find(dpAccountId) == m_donationPointAccumulatorMs.end())
+            {
+                uint32 dpLoadedMs = 0;
+                std::unique_ptr<QueryResult> dpResult(LoginDatabase.PQuery(
+                    "SELECT `accumulated_ms` FROM `donation_point_progress` WHERE `account_id` = %u", dpAccountId));
+                if (dpResult)
+                    dpLoadedMs = dpResult->Fetch()[0].GetUInt32();
+                m_donationPointAccumulatorMs[dpAccountId] = dpLoadedMs;
+            }
+
+            uint32& dpAccumMs = m_donationPointAccumulatorMs[dpAccountId];
+            dpAccumMs += diff;
+
+            if (dpAccumMs >= dpIntervalMs)
+            {
+                dpAccumMs -= dpIntervalMs;
+                // Insert or add, the same shape ShopMgr::GetBalance uses for an
+                // account that has never been in the shop.
+                LoginDatabase.PExecute(
+                    "INSERT INTO `shop_coins` (`id`, `coins`) VALUES (%u, %u) "
+                    "ON DUPLICATE KEY UPDATE `coins` = `coins` + %u",
+                    dpAccountId, dpAmount, dpAmount);
+                LoginDatabase.PExecute(
+                    "INSERT INTO `donation_point_progress` (`account_id`, `accumulated_ms`) VALUES (%u, %u) "
+                    "ON DUPLICATE KEY UPDATE `accumulated_ms` = %u",
+                    dpAccountId, dpAccumMs, dpAccumMs);
+                ChatHandler(dpPlayer).PSendSysMessage("You received %u Donation Point(s) for your time online!", dpAmount);
+            }
+            else if (dpShouldFlush)
+            {
+                LoginDatabase.PExecute(
+                    "INSERT INTO `donation_point_progress` (`account_id`, `accumulated_ms`) VALUES (%u, %u) "
+                    "ON DUPLICATE KEY UPDATE `accumulated_ms` = %u",
+                    dpAccountId, dpAccumMs, dpAccumMs);
+            }
+        }
+    }
+
     // Update liste des ban si besoin
     sAccountMgr.Update(diff);
 
@@ -2776,10 +3196,10 @@ void World::Update(uint32 diff)
         }
     }
 
-    // Moved here from the head of this function. Firing first meant a module acted
-    // before UpdateSessions, sMapMgr, sBattleGroundMgr and sLFTMgr had run, so every
-    // module tick decided on the PREVIOUS tick's world -- a module may hold several
-    // WorldScripts and was steering sixty crews on stale positions.
+    // Moved here from the head of this function. Firing first meant a module
+    // acted before UpdateSessions, sMapMgr, sBattleGroundMgr and sLFTMgr had
+    // run, so it saw the previous tick. This is where AzerothCore fires it, and
+    // where the bot tick used to sit.
     ScriptRegistry<WorldScript>::ForEachEnabledHook(WORLDHOOK_ON_UPDATE, [&](WorldScript* script)
     {
         script->OnUpdate(diff);
@@ -3091,8 +3511,6 @@ void World::BanAccount(uint32 accountId, uint32 duration, std::string reason, st
     else
         sAccountMgr.BanAccount(accountId, 0xFFFFFFFF);
 
-    StopHeadlessSessionsForAccount(accountId, true);
-
     if (WorldSession* sess = FindSession(accountId))
     {
         if (std::string(sess->GetPlayerName()) != author)
@@ -3165,8 +3583,6 @@ public:
                     sAccountMgr.BanAccount(account, time(nullptr) + holder->GetDuration());
                 else
                     sAccountMgr.BanAccount(account, 0xFFFFFFFF);
-
-                sWorld.StopHeadlessSessionsForAccount(account, true);
             }
             // Don't immediately kick if we're banning ourselves (destroys session, crash)
             if (account != holder->GetAuthorAccountId())
@@ -3548,31 +3964,41 @@ void World::UpdateSessions(uint32 diff)
     while (addSessQueue.next(sess))
         AddSession_(sess);
 
-    m_headlessSessionMgr->PromotePending();
-
     ///- Then send an update signal to remaining ones
     time_t time_now = time(nullptr);
 
-    for (SessionMap::iterator itr = m_sessions.begin(); itr != m_sessions.end(); )
-    {
-		WorldSession* pSession = itr->second;
-		WorldSessionFilter updater(pSession);
+    // WorldSession::Update may move the current session to
+    // m_disconnectedSessions (for example after a socket-side queue
+    // overflow). Iterating m_sessions directly would then leave an invalid
+    // iterator and the following increment could crash the world thread.
+    std::vector<WorldSession*> sessionsToUpdate;
+    sessionsToUpdate.reserve(m_sessions.size());
+    for (auto const& entry : m_sessions)
+        sessionsToUpdate.push_back(entry.second);
 
-		pSession->AddActiveTime(diff);
+    for (WorldSession* pSession : sessionsToUpdate)
+    {
+        SessionMap::iterator current = m_sessions.find(pSession->GetAccountId());
+        if (current == m_sessions.end() || current->second != pSession)
+            continue;
+
+        WorldSessionFilter updater(pSession);
+
+        pSession->AddActiveTime(diff);
         if (!pSession->Update(updater))
         {
-			if (pSession->PlayerLoading())
-				sLog.outInfo("[CRASH] World::UpdateSession attempt to delete session %u loading a player.", pSession->GetAccountId());
-			if (!RemoveQueuedSession(pSession) && pSession->HadQueue())
-				m_accountsLastLogout[pSession->GetAccountId()] = time_now;
-            itr = m_sessions.erase(itr);
-			m_Ipconnections[pSession->GetBinaryAddress()]--;
+            current = m_sessions.find(pSession->GetAccountId());
+            if (current == m_sessions.end() || current->second != pSession)
+                continue;
 
-			delete pSession;
-        }
-        else
-        {
-            itr++;
+            if (pSession->PlayerLoading())
+                sLog.outInfo("[CRASH] World::UpdateSession attempt to delete session %u loading a player.", pSession->GetAccountId());
+            if (!RemoveQueuedSession(pSession) && pSession->HadQueue())
+                m_accountsLastLogout[pSession->GetAccountId()] = time_now;
+            m_sessions.erase(current);
+            DecrementIpConnection(pSession->GetBinaryAddress());
+
+            delete pSession;
         }
     }
 
@@ -3592,8 +4018,6 @@ void World::UpdateSessions(uint32 diff)
             itr++;
         }
     }
-
-    m_headlessSessionMgr->Update(diff);
 }
 
 // This handles the issued and queued CLI/RA commands
@@ -4616,18 +5040,72 @@ void World::SendUpdateMultipleItems(const std::vector<uint32>& items, WorldSessi
 void World::SetSessionDisconnected(WorldSession* sess)
 {
     SessionMap::iterator itr = m_sessions.find(sess->GetAccountId());
-    ASSERT(itr != m_sessions.end());
+    if (itr == m_sessions.end() || itr->second != sess)
+        return;
     if (sess->HadQueue())
         m_accountsLastLogout[sess->GetAccountId()] = time(nullptr);
 
+    DecrementIpConnection(sess->GetBinaryAddress());
     m_sessions.erase(itr);
     m_disconnectedSessions.insert(sess);
 }
 
+void World::DecrementIpConnection(uint32 ip)
+{
+    auto itr = m_Ipconnections.find(ip);
+    if (itr == m_Ipconnections.end())
+        return;
+
+    if (itr->second > 1)
+        --itr->second;
+    else
+        m_Ipconnections.erase(itr);
+}
+
 void World::AddAsyncTask(std::function<void()> task)
 {
+    if (!task)
+        return;
+
+    // Internal/critical callbacks must not be shed. Optional remote query
+    // handlers use TryAddAsyncTask below when they can recover cleanly from
+    // admission failure.
     std::lock_guard<std::mutex> lock(m_asyncTaskQueueMutex);
-    _asyncTasks.push_back(task);
+    _asyncTasks.emplace_back(std::move(task));
+}
+
+bool World::TryAddAsyncTask(std::function<void()> task)
+{
+    if (!task)
+        return false;
+
+    bool accepted = true;
+    bool reportDrop = false;
+    uint32 dropped = 0;
+    {
+        std::lock_guard<std::mutex> lock(m_asyncTaskQueueMutex);
+        uint32 const maxQueuedTasks = getConfig(CONFIG_UINT32_ASYNC_TASKS_MAX_QUEUE);
+        if (maxQueuedTasks && _asyncTasks.size() >= maxQueuedTasks)
+        {
+            accepted = false;
+            ++m_asyncTaskDropsSinceLog;
+            time_t const now = time(nullptr);
+            if (!m_asyncTaskDropLogTime || now - m_asyncTaskDropLogTime >= 60)
+            {
+                m_asyncTaskDropLogTime = now;
+                dropped = m_asyncTaskDropsSinceLog;
+                m_asyncTaskDropsSinceLog = 0;
+                reportDrop = true;
+            }
+        }
+        else
+            _asyncTasks.emplace_back(std::move(task));
+    }
+
+    if (reportDrop)
+        BASIC_LOG("World optional async task queue is full; rejected %u remote query task(s) in the last reporting interval", dropped);
+
+    return accepted;
 }
 
 void World::StopDiscordBot()

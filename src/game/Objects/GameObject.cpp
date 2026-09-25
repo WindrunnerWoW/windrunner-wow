@@ -43,15 +43,21 @@
 #include "Geometry.h"
 #include "GameObjectAI.h"
 #include "ScriptMgr.h"
+#include "ScriptObjects.h"
 #include "ZoneScript.h"
 #include "DynamicTree.h"
 #include "vmap/GameObjectModel.h"
 #include "GuidObjectScaling.h"
+#ifdef ENABLE_ELUNA
+#include "LuaEngine.h"
+#endif
 #include <G3D/Box.h>
 #include <G3D/CoordinateFrame.h>
 #include <G3D/Quat.h>
 #include "SuspiciousStatisticMgr.h"
 #include "PerfStats.h"
+#include "Group.h"
+#include "ObjectAccessor.h"
 
 bool QuaternionData::isUnit() const
 {
@@ -84,6 +90,7 @@ GameObject::GameObject() : WorldObject(),
     m_lootState = GO_NOT_READY;
     m_spawnedByDefault = true;
     m_useTimes = 0;
+    m_chargeOverride = 0;
     m_spellId = 0;
     m_cooldownTime = 0;
     i_AI = nullptr;
@@ -116,6 +123,25 @@ GameObject::~GameObject()
     --PerfStats::g_totalGameObjects;
 }
 
+Group* GameObject::GetGroupLootRecipient() const
+{
+    return m_playerGroupId ? sObjectMgr.GetGroupById(m_playerGroupId) : nullptr;
+}
+
+Player* GameObject::GetLootRecipient() const
+{
+    if (Group* group = GetGroupLootRecipient())
+        for (GroupReference* member = group->GetFirstMember(); member; member = member->next())
+            if (Player* player = member->getSource())
+                return player;
+
+    for (ObjectGuid guid : m_allowedLooters)
+        if (Player* player = ObjectAccessor::FindPlayer(guid))
+            return player;
+
+    return nullptr;
+}
+
 bool CanOnlyBeLootedByPlayersOnMapAtSpawn(uint32 entry)
 {
     switch (entry)
@@ -130,6 +156,8 @@ bool CanOnlyBeLootedByPlayersOnMapAtSpawn(uint32 entry)
 
 void GameObject::AddToWorld()
 {
+    bool const wasInWorld = IsInWorld();
+
     ///- Register the gameobject for guid lookup
     if (!IsInWorld())
     {
@@ -147,6 +175,12 @@ void GameObject::AddToWorld()
 
     if (!i_AI)
         AIM_Initialize();
+
+    if (!wasInWorld && IsInWorld())
+        ScriptRegistry<AllGameObjectScript>::ForEach([&](AllGameObjectScript* script)
+        {
+            script->OnGameObjectAddWorld(this);
+        });
 
     if (CanOnlyBeLootedByPlayersOnMapAtSpawn(GetEntry()))
     {
@@ -171,6 +205,11 @@ void GameObject::RemoveFromWorld()
     ///- Remove the gameobject from the accessor
     if (IsInWorld())
     {
+        ScriptRegistry<AllGameObjectScript>::ForEach([&](AllGameObjectScript* script)
+        {
+            script->OnGameObjectRemoveWorld(this);
+        });
+
         if (m_zoneScript)
             m_zoneScript->OnGameObjectRemove(this);
 
@@ -274,6 +313,11 @@ bool GameObject::Create(uint32 guidlow, uint32 name_id, Map *map, float x, float
     if (m_zoneScript)
         m_zoneScript->OnObjectCreate(this);
 
+#ifdef ENABLE_ELUNA
+    if (Eluna* e = GetEluna())
+        e->OnSpawn(this);
+#endif
+
     return true;
 }
 
@@ -336,6 +380,11 @@ void GameObject::Update(uint32 update_diff, uint32 /*p_time*/)
     ///- UpdateAI
     if (i_AI)
         i_AI->UpdateAI(update_diff);
+
+    ScriptRegistry<AllGameObjectScript>::ForEach([&](AllGameObjectScript* script)
+    {
+        script->OnGameObjectUpdate(this, update_diff);
+    });
 
     switch (m_lootState)
     {
@@ -555,7 +604,7 @@ void GameObject::Update(uint32 update_diff, uint32 /*p_time*/)
                     }
                 }
 
-                if (uint32 max_charges = goInfo->GetCharges())
+                if (uint32 max_charges = GetEffectiveMaxCharges())
                 {
                     if (m_useTimes >= max_charges)
                     {
@@ -1388,6 +1437,15 @@ void GameObject::ResetDoorOrButton()
     m_cooldownTime = 0;
 }
 
+uint32 GameObject::GetEffectiveMaxCharges() const
+{
+    if (m_chargeOverride)
+        return m_chargeOverride;
+    if (GameObjectInfo const* info = GetGOInfo())
+        return info->GetCharges();
+    return 0;
+}
+
 void GameObject::UseDoorOrButton(uint32 time_to_restore, bool alternative /* = false */)
 {
     // GO_NOT_READY: needed in OnGameObjectCreate
@@ -1536,7 +1594,7 @@ void GameObject::Use(Unit* user)
             if (HasCustomAnim())
                 SendGameObjectCustomAnim();
 
-            if (uint32 max_charges = GetGOInfo()->GetCharges())
+            if (uint32 max_charges = GetEffectiveMaxCharges())
             {
                 AddUse();
                 if (m_useTimes >= max_charges)
@@ -2288,6 +2346,10 @@ bool GameObject::PlayerCanUse(Player* pPlayer)
 void GameObject::SetLootState(LootState state)
 {
     m_lootState = state;
+#ifdef ENABLE_ELUNA
+    if (Eluna* e = GetEluna())
+        e->OnLootStateChanged(this, state);
+#endif
     UpdateCollisionState();
 }
 
@@ -2295,6 +2357,10 @@ void GameObject::SetGoState(GOState state)
 {
     //SetByteValue(GAMEOBJECT_BYTES_1, 0, state); // 3.3.5
     SetUInt32Value(GAMEOBJECT_STATE, state);
+#ifdef ENABLE_ELUNA
+    if (Eluna* e = GetEluna())
+        e->OnGameObjectStateChanged(this, state);
+#endif
     UpdateCollisionState();
 }
 

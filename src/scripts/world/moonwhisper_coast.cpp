@@ -1,5 +1,4 @@
 #include "scriptPCH.h"
-#include "ScriptObjects.h"
 
 #include <algorithm>
 #include <vector>
@@ -24,22 +23,6 @@ enum MoonhoofCelebration
     SUMMON_EVENT_LIFETIME            = 3 * MINUTE * IN_MILLISECONDS
 };
 
-enum MissingCaravans
-{
-    QUEST_THE_MISSING_CARAVANS       = 41970,
-
-    MAP_KALIMDOR                     = 1,
-
-    AREATRIGGER_SECOND_CARAVAN       = 5660,
-    AREATRIGGER_THIRD_CARAVAN        = 5661,
-
-    NPC_CREDIT_FIRST_CARAVAN         = 51691,
-    NPC_CREDIT_SECOND_CARAVAN        = 51692,
-    NPC_CREDIT_THIRD_CARAVAN         = 51693,
-
-    FIRST_CARAVAN_CHECK_RADIUS       = 5
-};
-
 struct MoonwhisperPosition
 {
     float x;
@@ -47,8 +30,6 @@ struct MoonwhisperPosition
     float z;
     float o;
 };
-
-static MoonwhisperPosition const firstCaravanPosition = { 8495.277344f, -5853.270996f, 0.196963f, 0.0f };
 
 struct PendingCelebratorSpawn
 {
@@ -431,62 +412,8 @@ bool QuestAccept_npc_elder_starstrider(Player* pPlayer, Creature* pCreature, Que
     return true;
 }
 
-class player_moonwhisper_missing_caravans : public PlayerScript
-{
-    public:
-        player_moonwhisper_missing_caravans() : PlayerScript("player_moonwhisper_missing_caravans", { PLAYERHOOK_ON_UPDATE }) {}
-
-        void OnUpdate(Player* pPlayer, uint32 /*diff*/) override
-        {
-            if (!pPlayer || pPlayer->GetMapId() != MAP_KALIMDOR || !pPlayer->IsAlive() || pPlayer->IsGameMaster() || pPlayer->HasStealthAura())
-                return;
-
-            if (pPlayer->GetQuestStatus(QUEST_THE_MISSING_CARAVANS) != QUEST_STATUS_INCOMPLETE)
-                return;
-
-            if (pPlayer->GetPositionZ() < firstCaravanPosition.z - FIRST_CARAVAN_CHECK_RADIUS ||
-                pPlayer->GetPositionZ() > firstCaravanPosition.z + FIRST_CARAVAN_CHECK_RADIUS)
-                return;
-
-            if (pPlayer->GetDistance2d(firstCaravanPosition.x, firstCaravanPosition.y) > FIRST_CARAVAN_CHECK_RADIUS)
-                return;
-
-            pPlayer->KilledMonsterCredit(NPC_CREDIT_FIRST_CARAVAN);
-        }
-};
-
-class at_moonwhisper_missing_caravans : public AreaTriggerScript
-{
-    public:
-        at_moonwhisper_missing_caravans() : AreaTriggerScript("at_moonwhisper_missing_caravans") {}
-
-        bool OnTrigger(Player* pPlayer, AreaTriggerEntry const* pTrigger) override
-        {
-            if (!pPlayer || !pTrigger || !pPlayer->IsAlive() || pPlayer->IsGameMaster() || pPlayer->HasStealthAura())
-                return false;
-
-            if (pPlayer->GetQuestStatus(QUEST_THE_MISSING_CARAVANS) != QUEST_STATUS_INCOMPLETE)
-                return false;
-
-            switch (pTrigger->id)
-            {
-                case AREATRIGGER_SECOND_CARAVAN:
-                    pPlayer->KilledMonsterCredit(NPC_CREDIT_SECOND_CARAVAN);
-                    return true;
-                case AREATRIGGER_THIRD_CARAVAN:
-                    pPlayer->KilledMonsterCredit(NPC_CREDIT_THIRD_CARAVAN);
-                    return true;
-                default:
-                    return false;
-            }
-        }
-};
-
 void AddSC_moonwhisper_coast()
 {
-    new player_moonwhisper_missing_caravans();
-    new at_moonwhisper_missing_caravans();
-
     Script* pNewScript = new Script;
     pNewScript->Name = "npc_elder_starstrider";
     pNewScript->GetAI = &GetAI_npc_elder_starstrider;

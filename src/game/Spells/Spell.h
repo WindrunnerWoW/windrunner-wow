@@ -39,7 +39,7 @@
 
 #include <memory>
 
-#define MAX_SPELL_ID 60000
+#define MAX_SPELL_ID 99999
 
 // For Plainsrunning hackfixes:
 
@@ -235,6 +235,29 @@ class Spell
     friend void WorldObject::SetCurrentCastedSpell(Spell* pSpell );
     friend void WorldObject::MoveChannelledSpellWithCastTime(Spell* pSpell);
     public:
+        // bot sets spell->m_clientCast = true on spells it queues.
+        // Penqle has no equivalent; stub field is never read.
+        bool m_clientCast = false;
+        // SpellStart: cmangos returns SpellCastResult; Penqle uses prepare().
+        SpellCastResult SpellStart(SpellCastTargets const* targets, Aura* triggeredByAura = nullptr) {
+            return prepare(targets ? *targets : SpellCastTargets(), triggeredByAura);
+        }
+        SpellCastResult SpellStart() { return prepare(); }
+        // GetTrueCaster: cmangos's name; Penqle uses m_caster.
+        WorldObject* GetTrueCaster() const { return m_caster; }
+        // PreCastCheck: cmangos has it; Penqle uses CheckCast (private). Stub returns SPELL_CAST_OK.
+        SpellCastResult PreCastCheck() const { return SPELL_CAST_OK; }
+        // Prepare: cmangos's name; Penqle uses prepare. Forward.
+        SpellCastResult Prepare() { return prepare(); }
+        // m_ignoreCastTime: cmangos field, Penqle no equivalent. Stub for backwards-compat.
+        bool m_ignoreCastTime = false;
+        // m_effectSkillInfo: cmangos field for per-effect skill info (lockpicking etc). Stub array.
+        struct EffectSkillInfo { SkillType skillId = SKILL_NONE; int32 reqSkillValue = 0; int32 skillValue = 0; };
+        EffectSkillInfo m_effectSkillInfo[MAX_EFFECT_INDEX]{};
+        // CanBeInterrupted: cmangos has it; Penqle doesn't. Stub returns true (most spells can be interrupted).
+        bool CanBeInterrupted() const { return true; }
+        // GetDamage: cmangos exposes computed damage. Stub returns 0.
+        int32 GetDamage() const { return 0; }
 
         void EffectEmpty(SpellEffectIndex eff_idx);
         void EffectNULL(SpellEffectIndex eff_idx);
@@ -335,7 +358,16 @@ class Spell
 
         Spell(Unit* caster, SpellEntry const *info, bool triggered, ObjectGuid originalCasterGUID = ObjectGuid(), SpellEntry const* triggeredBy = nullptr, Unit* victim = nullptr, SpellEntry const* triggeredByParent = nullptr, bool bCanIgnoreLOS = false);
         Spell(GameObject* caster, SpellEntry const *info, bool triggered, ObjectGuid originalCasterGUID = ObjectGuid(), SpellEntry const* triggeredBy = nullptr, Unit* victim = nullptr, SpellEntry const* triggeredByParent = nullptr, bool bCanIgnoreLOS = false);
-        ~Spell();
+        // VIRTUAL. Spell::Delete() ends in `delete this` on a Spell const*,
+        // and mod-playerbots derives from this class (BotUseItemSpell adds a
+        // bool, making it 760 bytes against Spell's 752). Without a virtual
+        // destructor that delete frees the base size and leaves eight bytes
+        // behind, which corrupts the allocator's bookkeeping - found with
+        // AddressSanitizer as a new-delete-type-mismatch out of
+        // Player::Update -> EventProcessor::Update -> ~SpellEvent. The crash
+        // it caused always surfaced somewhere else entirely, whoever touched
+        // that region next.
+        virtual ~Spell();
 
         SpellCastResult prepare(SpellCastTargets targets, Aura* triggeredByAura = nullptr, uint32 chance = 0);
         SpellCastResult prepare(Aura* triggeredByAura = nullptr, uint32 chance = 0);
@@ -412,6 +444,8 @@ class Spell
         //void HandleAddAura(Unit* Target);
 
         SpellEntry const* m_spellInfo;
+        SpellEntry const* GetSpellProto() const { return m_spellInfo; }
+        SpellEntry const* GetSpellInfo() const { return m_spellInfo; }
         bool m_isCustomSpell = false;
 
         bool m_addThreat = true;
@@ -488,6 +522,8 @@ class Spell
         bool IsTriggeredByAura() const { return m_triggeredByAuraSpell; }
         bool IsTriggeredByProc() const;
         bool IsCastByItem() const { return m_CastItem; }
+        // bot calls GetCastItem.
+        Item* GetCastItem() const { return m_CastItem; }
         void ForceConsumeCastItem() { m_forceConsumeItem = true; }
         void SetCastItem(Item* item)
         {
@@ -583,8 +619,6 @@ class Spell
         Corpse* GetCorpseTarget() const { return corpseTarget; }
         GameObject* GetGOTarget() const { return gameObjTarget; }
         float GetTotalEffectDamage() const { return m_damage; }
-        float GetTotalEffectHealing() const { return m_healing; }
-        void SetTotalEffectHealing(float healing) { m_healing = healing; }
         float damage = 0;
     protected:
 

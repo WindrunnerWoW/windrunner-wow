@@ -34,14 +34,6 @@ enum PaladinSpells
     SPELL_PALADIN_HOLY_SHOCK_HEAL_R3               = 25903,
     SPELL_PALADIN_HOLY_SHOCK_HEAL_R4               = 51787,
     SPELL_PALADIN_HOLY_SHOCK_RESET_CHANCE          = 51825,
-    SPELL_PALADIN_MENDING_LIGHT_R1                 = 51324,
-    SPELL_PALADIN_MENDING_LIGHT_R2                 = 51875,
-    SPELL_PALADIN_MENDING_LIGHT_R3                 = 51876,
-    SPELL_PALADIN_MENDING_LIGHT_R4                 = 51877,
-    SPELL_PALADIN_MENDING_LIGHT_R5                 = 51878,
-    SPELL_PALADIN_MENDING_LIGHT_R6                 = 51879,
-    SPELL_PALADIN_MENDING_LIGHT_R7                 = 51880,
-    SPELL_PALADIN_MENDING_LIGHT_R8                 = 51881,
     SPELL_PALADIN_RIGHTEOUS_FURY                   = 25780,
     SPELL_PALADIN_RIGHTEOUS_STRIKES_R1             = 51341,
     SPELL_PALADIN_RIGHTEOUS_STRIKES_R2             = 51342,
@@ -87,7 +79,6 @@ enum PaladinSpells
     SPELL_PALADIN_JUDGEMENT_OF_WISDOM_PROC_R4      = 51749,
     SPELL_PALADIN_JUDGEMENT_OF_WISDOM_PROC_R5      = 51750,
     SPELL_PALADIN_JUDGEMENT_OF_LIGHT_BONUS         = 28775,
-    SPELL_PALADIN_REDEMPTION_JUDGEMENT_OF_LIGHT_BONUS = 51820,
     SPELL_PALADIN_FLASH_OF_LIGHT_BONUS_41          = 28851,
     SPELL_PALADIN_FLASH_OF_LIGHT_BONUS_53          = 28853,
     SPELL_PALADIN_REPENTANCE_R1                    = 20066,
@@ -167,20 +158,6 @@ void ResetHolyShockCooldowns(Player* player)
 
     for (uint32 spellId : spellsToClear)
         player->RemoveSpellCooldown(spellId, true);
-}
-
-int32 GetJudgementOfLightFlatHealBonus(Unit* caster)
-{
-    if (!caster)
-        return 0;
-
-    if (Aura const* aura = caster->GetAura(SPELL_PALADIN_REDEMPTION_JUDGEMENT_OF_LIGHT_BONUS, EFFECT_INDEX_0))
-        return aura->GetBasePoints();
-
-    if (Aura const* aura = caster->GetAura(SPELL_PALADIN_JUDGEMENT_OF_LIGHT_BONUS, EFFECT_INDEX_0))
-        return aura->GetBasePoints();
-
-    return 0;
 }
 
 // Coeffs not driven by spell data for SoR so that 1 handed and 2 handed weapons can have separate coeffs
@@ -409,105 +386,6 @@ struct spell_paladin_holy_strike : public SpellScript
         }
 
         return true;
-    }
-};
-
-struct spell_paladin_mending_light : public SpellScript
-{
-    void OnSetTargetMap(Spell* spell, SpellEffectIndex effIdx, uint32& targetMode, float& /*radius*/, uint32& unMaxTargets, bool& /*selectClosestTargets*/) const override
-    {
-        switch (spell->m_spellInfo->Id)
-        {
-            case SPELL_PALADIN_MENDING_LIGHT_R1:
-            case SPELL_PALADIN_MENDING_LIGHT_R2:
-            case SPELL_PALADIN_MENDING_LIGHT_R3:
-            case SPELL_PALADIN_MENDING_LIGHT_R4:
-            case SPELL_PALADIN_MENDING_LIGHT_R5:
-            case SPELL_PALADIN_MENDING_LIGHT_R6:
-            case SPELL_PALADIN_MENDING_LIGHT_R7:
-            case SPELL_PALADIN_MENDING_LIGHT_R8:
-                if (effIdx == EFFECT_INDEX_0)
-                {
-                    targetMode = TARGET_UNIT_CASTER;
-                    unMaxTargets = 1;
-                }
-                else if (effIdx == EFFECT_INDEX_1 && targetMode == TARGET_ENUM_UNITS_RAID_WITHIN_CASTER_RANGE)
-                    unMaxTargets = spell->m_spellInfo->EffectChainTarget[effIdx] + 1;
-                break;
-        }
-    }
-
-    void OnTargetMapFilled(Spell* spell, SpellEffectIndex effIdx, uint32 targetMode, std::list<Unit*>& targets) const override
-    {
-        if (effIdx != EFFECT_INDEX_1 ||
-                targetMode != TARGET_ENUM_UNITS_RAID_WITHIN_CASTER_RANGE ||
-                !spell->m_casterUnit)
-            return;
-
-        switch (spell->m_spellInfo->Id)
-        {
-            case SPELL_PALADIN_MENDING_LIGHT_R1:
-            case SPELL_PALADIN_MENDING_LIGHT_R2:
-            case SPELL_PALADIN_MENDING_LIGHT_R3:
-            case SPELL_PALADIN_MENDING_LIGHT_R4:
-            case SPELL_PALADIN_MENDING_LIGHT_R5:
-            case SPELL_PALADIN_MENDING_LIGHT_R6:
-            case SPELL_PALADIN_MENDING_LIGHT_R7:
-            case SPELL_PALADIN_MENDING_LIGHT_R8:
-                break;
-            default:
-                return;
-        }
-
-        Unit* caster = spell->m_casterUnit;
-        ObjectGuid const casterGuid = caster->GetObjectGuid();
-
-        targets.remove_if([caster](Unit const* target)
-        {
-            return !target ||
-                   target->GetTypeId() != TYPEID_PLAYER ||
-                   !target->IsAlive() ||
-                   !caster->IsFriendlyTo(target) ||
-                   target->GetHealth() >= target->GetMaxHealth();
-        });
-
-        targets.remove_if([casterGuid](Unit const* target)
-        {
-            return target && target->GetObjectGuid() == casterGuid;
-        });
-
-        if (caster->GetTypeId() == TYPEID_PLAYER &&
-                caster->IsAlive() &&
-                caster->GetHealth() < caster->GetMaxHealth())
-            targets.push_front(caster);
-    }
-
-    void OnEffectExecuted(Spell* spell, SpellEffectIndex effIdx) const override
-    {
-        if (effIdx != EFFECT_INDEX_1 || !spell->m_casterUnit)
-            return;
-
-        Unit* target = spell->GetUnitTarget();
-        if (!target || target->GetObjectGuid() != spell->m_casterUnit->GetObjectGuid())
-            return;
-
-        switch (spell->m_spellInfo->Id)
-        {
-            case SPELL_PALADIN_MENDING_LIGHT_R1:
-            case SPELL_PALADIN_MENDING_LIGHT_R2:
-            case SPELL_PALADIN_MENDING_LIGHT_R3:
-            case SPELL_PALADIN_MENDING_LIGHT_R4:
-            case SPELL_PALADIN_MENDING_LIGHT_R5:
-            case SPELL_PALADIN_MENDING_LIGHT_R6:
-            case SPELL_PALADIN_MENDING_LIGHT_R7:
-            case SPELL_PALADIN_MENDING_LIGHT_R8:
-                break;
-            default:
-                return;
-        }
-
-        uint32 const healing = uint32(spell->GetTotalEffectHealing());
-        spell->SetTotalEffectHealing((healing + 1) / 2);
     }
 };
 
@@ -782,11 +660,9 @@ struct spell_paladin_judgement_of_light_wisdom_proc : public SpellScript
     {
         if (effIdx == EFFECT_INDEX_0 &&
                 spell->m_spellInfo->IsFitToFamilyMask<CF_PALADIN_JUDGEMENT_OF_WISDOM_LIGHT>() &&
-                spell->m_spellInfo->SpellIconID == 299)
-        {
-            if (int32 bonus = GetJudgementOfLightFlatHealBonus(spell->m_casterUnit))
-                spell->m_currentBasePoints[effIdx] = bonus;
-        }
+                spell->m_spellInfo->SpellIconID == 299 &&
+                spell->m_casterUnit && spell->m_casterUnit->HasAura(SPELL_PALADIN_JUDGEMENT_OF_LIGHT_BONUS))
+            spell->m_currentBasePoints[effIdx] = 20;
 
         return true;
     }
@@ -1090,7 +966,6 @@ void AddSC_paladin_spell_scripts()
     RegisterSpellScript("spell_paladin_judgement_of_the_crusader", &GetSpellScript<spell_paladin_judgement_of_the_crusader>);
     RegisterSpellScript("spell_paladin_holy_shock", &GetSpellScript<spell_paladin_holy_shock>);
     RegisterSpellScript("spell_paladin_holy_strike", &GetSpellScript<spell_paladin_holy_strike>);
-    RegisterSpellScript("spell_paladin_mending_light", &GetSpellScript<spell_paladin_mending_light>);
     RegisterSpellScript("spell_paladin_crusader_strike", &GetSpellScript<spell_paladin_crusader_strike>);
     RegisterSpellScript("spell_paladin_judgement", &GetSpellScript<spell_paladin_judgement>);
     RegisterAuraScript("spell_paladin_conviction_seals", &GetAuraScript<spell_paladin_conviction_seals>);

@@ -34,7 +34,7 @@ namespace
     }
 }
 
-LFTManager::LFTManager() : m_nextListingId(1), m_nextOfferId(1), m_nextQueueOrder(1), m_listingsLoaded(false)
+LFTManager::LFTManager() : m_nextListingId(1), m_nextOfferId(1), m_nextQueueOrder(1), m_listingsLoaded(false), m_botFillTimer(0)
 {
 }
 
@@ -93,6 +93,8 @@ bool LFTManager::HandleAddonMessage(Player* player, uint32 type, std::string con
 
 void LFTManager::Update(uint32 diff)
 {
+    UpdateBotFill(diff);
+
     for (QueueMap::iterator itr = m_queue.begin(); itr != m_queue.end();)
     {
         if (!GetPlayer(itr->first))
@@ -131,17 +133,8 @@ void LFTManager::Update(uint32 diff)
     TryMakeOffers();
 }
 
-uint8 LFTManager::SignedUpRole(ObjectGuid const& guid) const
-{
-    std::map<ObjectGuid, uint8>::const_iterator it = m_signedUpRole.find(guid);
-
-    return it == m_signedUpRole.end() ? 0 : it->second;
-}
-
 void LFTManager::OnPlayerLogout(ObjectGuid const& guid)
 {
-    m_signedUpRole.erase(guid);
-
     EnsureListingsLoaded();
     CleanupPlayer(guid);
 

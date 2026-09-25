@@ -32,11 +32,13 @@
 #include "Item.h"
 #include "GossipDef.h"
 #include "MapNodes/AbstractPlayer.h"
-#include "SessionTransport.h"
 #include "WhisperTargetLimits.h"
 #include "Analysis/AccountAnalyser.hpp"
 
 
+#include <atomic>
+#include <deque>
+#include <mutex>
 #include <optional>
 
 struct ItemPrototype;
@@ -68,6 +70,8 @@ class BehaviorAnalyzer;
 class MasterPlayer;
 
 struct OpcodeHandler;
+// PlayerBotEntry forward decl removed — Penqle's PlayerBots stub binned in
+// cmangos's bot module adds its own forward decls in the host-hooks pass.
 
 enum ClientOSType
 {
@@ -305,20 +309,42 @@ enum WorldRegion
 class WorldSession
 {
     friend class CharacterHandler;
-    friend class HeadlessSessionMgr;
     public:
-        WorldSession(uint32 id, WorldSocket *sock, AccountTypes sec, time_t mute_time, LocaleConstant locale, const std::string& remote_ip, uint32 binaryIp, SessionTransport transport = SessionTransport::Network);
+        WorldSession(uint32 id, WorldSocket *sock, AccountTypes sec, time_t mute_time, LocaleConstant locale, const std::string& remote_ip, uint32 binaryIp);
         ~WorldSession();
 
         bool PlayerLoading() const { return m_playerLoading; }
         bool PlayerLogout() const { return m_playerLogout; }
         bool PlayerLogoutWithSave() const { return m_playerLogout && m_playerSave; }
+        // bot's AddPlayerBot flow needs to flag
+        // the synthetic session as loading before HandlePlayerLogin is reached.
+        void SetPlayerLoading(bool loading) { m_playerLoading = loading; }
 
         bool CharacterScreenIdleKick(uint32 diff);
 
         void SizeError(WorldPacket const& packet, uint32 size) const;
 
         void SendPacket(WorldPacket const* packet);
+        // bot module calls SendPacket(packet) by value.
+        // Add reference overload that forwards to the pointer version.
+        void SendPacket(WorldPacket const& packet) { SendPacket(&packet); }
+        // SendPlaySpellVisual: cmangos has it on WorldSession; Penqle has it on Unit.
+        // Build SMSG_PLAY_SPELL_VISUAL packet from session and dispatch.
+        void SendPlaySpellVisual(ObjectGuid guid, uint32 spellArtKit);
+        // SetNoAnticheat: cmangos disables anticheat for bot sessions. Stub no-op
+        void SetNoAnticheat(bool /*disable*/ = true) {}
+        // SetOffline: cmangos marks session as offline. Stub no-op.
+        void SetOffline() {}
+        // GetState: cmangos returns session state enum. Stub returns READY (1).
+        enum WorldSessionState : uint32 {
+            WORLD_SESSION_STATE_CREATED = 0,
+            WORLD_SESSION_STATE_READY = 1,
+            WORLD_SESSION_STATE_OFFLINE = 2,
+            WORLD_SESSION_STATE_REMOVING = 3,
+        };
+        WorldSessionState GetState() const { return WORLD_SESSION_STATE_READY; }
+        // HandleBotPackets: cmangos drains the bot's packet queue. Stub no-op.
+        void HandleBotPackets() {}
         void SendNotification(const char *format,...) ATTR_PRINTF(2,3);
         void SendNotification(int32 string_id,...);
         void SendPetNameInvalid(uint32 error, std::string const& name);
@@ -350,10 +376,8 @@ class WorldSession
         std::string const& GetClientHash() const { return _clientHash; }
         void SetPlayer(Player *plr) { _player = plr; }
         void SetMasterPlayer(MasterPlayer *plr) { m_masterPlayer = plr; }
+        void LoginPlayer(ObjectGuid playerGuid);
         WorldSocket* GetSocket() { return m_Socket; }
-        SessionTransport GetTransport() const { return m_transport; }
-        bool IsHeadless() const { return m_transport == SessionTransport::Headless; }
-        bool HasNetworkTransport() const { return m_transport == SessionTransport::Network && m_Socket != nullptr; }
         void SetFingerprintBanned() { m_fingerprintBanned = true; }
         bool IsFingerprintBanned() const { return m_fingerprintBanned; }
 
@@ -392,18 +416,34 @@ class WorldSession
         }
 
         void LogoutPlayer(bool Save);
+        // Request a logout from a packet/map callback. The request is consumed
+        // by the WorldSession update after packet processing, where destroying
+        // the Player is safe.
+        void SchedulePlayerLogout(bool Save);
+        // cmangos's 0-arg form (always saves).
+        void LogoutPlayer() { LogoutPlayer(true); }
         void KickPlayer();
         // Session can be safely deleted if returns false
         bool ForcePlayerLogoutDelay();
 
         void QueuePacket(WorldPacket* new_packet);
+        // bot wraps packets in unique_ptr.
+        void QueuePacket(std::unique_ptr<WorldPacket> new_packet) { QueuePacket(new_packet.release()); }
+        // Const-reference overload (bot sometimes constructs an inline WorldPacket).
+        // Copies into a fresh heap WorldPacket so QueuePacket(WorldPacket*) — which
+        // takes ownership and may delete on the unknown-opcode path — never sees
+        // a non-owning pointer to a stack object. Body is out-of-line because
+        // this header only forward-declares WorldPacket.
+        void QueuePacket(WorldPacket const& new_packet);
 
         bool Update(PacketFilter& updater);
         /**
-         * @brief Returns true if packets can be processed (ie the session has an open socket)
+         * @brief Returns true iif we can process packets (ie logged in Player, not a bot, etc ...)
          */
         bool CanProcessPackets() const;
         void ProcessPackets(PacketFilter& updater);
+        bool PopIncomingPacket(PacketProcessing type, WorldPacket*& packet, PacketFilter& updater);
+        bool EnqueueIncomingPacket(PacketProcessing type, WorldPacket* packet);
 
         /// Handle the authentication waiting queue (to be completed)
         void SendAuthWaitQue(uint32 position);
@@ -507,6 +547,10 @@ class WorldSession
         // Account mute time
         time_t m_muteTime;
         time_t m_lastPubChannelMsgTime;
+        uint32 m_lastChannelRosterRequestTime = 0;
+        uint32 m_addonChannelWindowStart = 0;
+        uint32 m_addonChannelFanoutUnits = 0;
+        std::mutex m_channelRateLimitMutex;
 
         uint32 GetTimeActive() const { return m_activeTime; }
         void AddActiveTime(uint32 diff) { m_activeTime += diff; }
@@ -538,6 +582,9 @@ class WorldSession
         // Intentionally session-based to avoid login/logout hijinks
         time_t GetLastPubChanMsgTime() { return m_lastPubChannelMsgTime; }
         void SetLastPubChanMsgTime(time_t time) { m_lastPubChannelMsgTime = time; }
+
+        // Bot system — Penqle stub removed. cmangos/playerbots adds its own
+        // GetPlayerbotAI() / GetPlayerbotMgr() / SetNoAnticheat() on Player.
 
         // Player online / socket offline system
         void SetDisconnectedSession(); // Remove from World::m_session. Used when an account gets disconnected.
@@ -602,11 +649,11 @@ class WorldSession
 
         void SetReceivedWhoRequest(bool v) { m_who_recvd = v; }
         bool ReceivedWhoRequest() const { return m_who_recvd; }
-        bool m_who_recvd;
+        std::atomic_bool m_who_recvd;
 
         void SetReceivedAHListRequest(bool v) { m_ah_list_recvd = v; }
         bool ReceivedAHListRequest() const { return m_ah_list_recvd; }
-        bool m_ah_list_recvd;
+        std::atomic_bool m_ah_list_recvd;
 
         void OnPassedQueue();
 
@@ -646,6 +693,7 @@ class WorldSession
         void HandleCharCreateOpcode(WorldPacket& recvPacket);
         void HandlePlayerLoginOpcode(WorldPacket& recvPacket);
         void HandleCharEnum(QueryResult * result);
+        void HandlePlayerLogin(LoginQueryHolder * holder);
         void HandlePlayedTime(WorldPacket& recvPacket);
 
         // Movement
@@ -759,6 +807,7 @@ class WorldSession
         void HandleGuildQueryOpcode(WorldPacket& recvPacket);
         void HandleGuildCreateOpcode(WorldPacket& recvPacket);
         void HandleGuildInviteOpcode(WorldPacket& recvPacket);
+        void SendGuildInvite(Player* invitee);
         void HandleGuildRemoveOpcode(WorldPacket& recvPacket);
         void HandleGuildAcceptOpcode(WorldPacket& recvPacket);
         void HandleGuildDeclineOpcode(WorldPacket& recvPacket);
@@ -903,6 +952,8 @@ class WorldSession
         void HandleTextEmoteOpcode(WorldPacket& recvPacket);
         void HandleChatIgnoredOpcode(WorldPacket& recvPacket);
         uint32_t ChatCooldown();
+        bool IsChannelRosterRequestAllowed();
+        bool IsAddonChannelMessageAllowed(uint32 recipientCount);
 
         void HandleReclaimCorpseOpcode( WorldPacket& recvPacket );
         void HandleCorpseQueryOpcode( WorldPacket& recvPacket );
@@ -954,6 +1005,9 @@ class WorldSession
 
         //BattleGround
         void HandleBattlefieldJoinOpcode( WorldPacket &recv_data );
+        // cmangos has HandleBattlefieldPortOpcode; Penqle has equivalent flow elsewhere.
+        // Stub: forward to Join handler (closest semantic; bot uses this to enter the BG).
+        void HandleBattlefieldPortOpcode(WorldPacket& recv_data) { HandleBattlefieldJoinOpcode(recv_data); }
         void HandleBattlemasterHelloOpcode(WorldPacket &recv_data);
         void HandleBattlemasterJoinOpcode(WorldPacket &recv_data);
         void HandleBattleGroundPlayerPositionsOpcode(WorldPacket& recv_data);
@@ -989,22 +1043,11 @@ class WorldSession
         // logging helper
         void LogUnexpectedOpcode(WorldPacket *packet, const char * reason);
         void LogUnprocessedTail(WorldPacket *packet);
-        bool LoginPlayer(ObjectGuid playerGuid, uint64 requestToken = 0);
-        bool IsLoginRequest(ObjectGuid characterGuid, SessionTransport transport, uint64 requestToken) const
-        {
-            return m_loginRequestGuid == characterGuid &&
-                m_transport == transport && m_loginRequestToken == requestToken;
-        }
-        void HandlePlayerLogin(LoginQueryHolder* holder);
-        void InitHeadlessSession();
 
         Player *_player;
         ObjectGuid m_clientMoverGuid;
-        ObjectGuid m_loginRequestGuid;
-        uint64 m_loginRequestToken = 0;
         uint32 m_moveRejectTime;
         WorldSocket *m_Socket;
-        SessionTransport const m_transport;
         std::string m_Address;
         uint32 m_BinaryAddress = 0;
 
@@ -1021,16 +1064,30 @@ class WorldSession
         bool m_inQueue;                                     // session wait in auth.queue
         bool m_hadQueue = false;                            // true if the session was in a queue this session.
         bool m_playerLoading;                               // code processed in LoginPlayer
-        bool m_headlessLoginRequested = false;
         bool m_playerLogout;                                // code processed in LogoutPlayer
         bool m_playerRecentlyLogout;
         bool m_playerSave;
+        enum class ScheduledLogout : uint8
+        {
+            None,
+            Save,
+            NoSave,
+        };
+        // Chat packets may be processed by a map worker; use an atomic request
+        // so the WorldSession update can safely consume it on the world thread.
+        std::atomic<ScheduledLogout> m_scheduledPlayerLogout { ScheduledLogout::None };
         LocaleConstant m_sessionDbcLocale;
         int m_sessionDbLocaleIndex;
         uint32 m_latency;
         uint32 m_Tutorials[ACCOUNT_TUTORIALS_COUNT];
         TutorialDataState m_tutorialState;
-        LockedQueue<WorldPacket*, std::mutex> _recvQueue[PACKET_PROCESS_MAX_TYPE];
+        std::deque<WorldPacket*> _recvQueue[PACKET_PROCESS_MAX_TYPE];
+        mutable std::mutex _recvQueueLock;
+        uint32 _recvQueuePacketCount = 0;
+        uint32 _recvQueueBytes = 0;
+        uint32 _recvQueueMaxPackets = 512;
+        uint32 _recvQueueMaxBytes = 4 * 1024 * 1024;
+        std::atomic<bool> _recvQueueOverflowed{false};
         bool _receivedPacketType[PACKET_PROCESS_MAX_TYPE];
 
         Anticheat::Movement* m_cheatData;
@@ -1039,7 +1096,8 @@ class WorldSession
         std::string m_username, m_email;
         uint32 _floodPacketsCount[FLOOD_MAX_OPCODES_TYPE];
 
-        std::unordered_map<uint32, std::pair<uint32, uint32>> m_requeuePacketCount; 
+        std::unordered_map<uint32, std::pair<uint32, uint32>> m_requeuePacketCount;
+        // m_bot field removed — Penqle stub binned (cmangos port).
         uint32 m_lastReceivedPacketTime;
         ClientIdentifiersMap _clientIdentifiers;
         std::string     _clientHash;

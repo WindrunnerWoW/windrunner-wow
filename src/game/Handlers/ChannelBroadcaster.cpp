@@ -1,93 +1,82 @@
-#include <thread>
-#include <chrono>
 #include "ChannelBroadcaster.h"
+
+#include "Channel.h"
 #include "ChannelMgr.h"
-#include "World.h"
 
+#include <utility>
+#include <vector>
 
-ChannelBroadcaster::ChannelBroadcaster() : MessageQueue(15)
-{
-	StartThread();
-}
 
 ChannelBroadcaster::~ChannelBroadcaster()
 {
-	Stop();
-}
-
-void ChannelBroadcaster::StartThread()
-{
-	Worker = new std::thread([this]()
-	{
-		ThreadProc();
-	});
-}
-
-void ChannelBroadcaster::Stop()
-{
-	if (Worker == nullptr)
-	{
-		return;
-	}
-	
-	if (Worker->joinable())
-	{
-		Worker->join();
-	}
-
-	delete Worker;
-	Worker = nullptr;
+    std::lock_guard<std::mutex> lock(m_queueMutex);
+    m_messageQueue.clear();
+    m_queuedMessageBytes = 0;
 }
 
 void ChannelBroadcaster::EnableSendingMessages()
 {
-	bShouldSentMessages.store(true);
-	while (!bIsWorking.load() && !sWorld.IsStopped())
-	{
-		std::this_thread::sleep_for(std::chrono::milliseconds(0));
-	}
+    // EnqueueMessage is always available. This hook marks the point before map
+    // workers start, but deliberately performs no channel operation itself.
 }
 
 void ChannelBroadcaster::DisableSendingMessages()
 {
-	bShouldSentMessages.store(false);
-	while (bIsWorking.load())
-	{
-		std::this_thread::sleep_for(std::chrono::milliseconds(0));
-	}
+    // MapManager invokes this on the world thread after waiting for every map
+    // worker. ChannelMgr and Channel remain exclusively world-thread owned.
+    DrainMessages();
 }
 
-void ChannelBroadcaster::EnqueueMessage(std::string&& Message, const std::string& ChannelName, ObjectGuid PlayerGuid, uint32 Language, Team ChannelTeam, bool bSkipChecks)
+bool ChannelBroadcaster::EnqueueMessage(std::string&& message, std::string const& channelName,
+    ObjectGuid playerGuid, uint32 language, Team channelTeam, bool skipChecks)
 {
-	MessageQueue.enqueue(ChannelMessage{std::move(Message), ChannelName, PlayerGuid, Language, ChannelTeam, bSkipChecks });
+    std::lock_guard<std::mutex> lock(m_queueMutex);
+    if (m_messageQueue.size() >= MaxQueuedMessages ||
+        message.size() > MaxQueuedMessageBytes || channelName.size() > MaxQueuedChannelNameBytes ||
+        m_queuedMessageBytes > MaxQueuedBytes - message.size())
+    {
+        m_droppedMessages.fetch_add(1, std::memory_order_relaxed);
+        return false;
+    }
+
+    m_messageQueue.push_back(ChannelMessage{std::move(message), channelName, playerGuid,
+        language, channelTeam, skipChecks});
+    m_queuedMessageBytes += m_messageQueue.back().Message.size();
+    return true;
 }
 
-void ChannelBroadcaster::ThreadProc()
+void ChannelBroadcaster::DrainMessages()
 {
-	while (!sWorld.IsStopped())
-	{
-		while (bShouldSentMessages.load() && !sWorld.IsStopped())
-		{
-			bIsWorking.store(true);
+    std::vector<ChannelMessage> messages;
+    messages.reserve(MaxMessagesPerDrain);
 
+    {
+        std::lock_guard<std::mutex> lock(m_queueMutex);
+        while (!m_messageQueue.empty() && messages.size() < MaxMessagesPerDrain)
+        {
+            m_queuedMessageBytes -= m_messageQueue.front().Message.size();
+            messages.push_back(std::move(m_messageQueue.front()));
+            m_messageQueue.pop_front();
+        }
+    }
 
-			constexpr int32 MessageLimit = 5;
-			int32 MessageIterator = 0;
+    for (ChannelMessage const& message : messages)
+    {
+        ChannelMgr* channelManager = channelMgr(message.ChannelTeam);
+        if (!channelManager)
+            continue;
 
+        // Never recreate an attacker-controlled custom channel merely because
+        // an old queued message still names it. Reserved server channels are
+        // safe to lazily create on this world-thread-owned path.
+        Channel* targetChannel = nullptr;
+        if (ChannelMgr::IsReservedChannelName(message.ChannelName))
+            targetChannel = channelManager->GetOrCreateChannel(message.ChannelName);
+        else
+            targetChannel = channelManager->GetChannel(message.ChannelName, PlayerPointer(), false);
+        if (!targetChannel)
+            continue;
 
-			ChannelMessage msg;
-			while (MessageIterator < 5 && MessageQueue.try_dequeue(msg))
-			{
-				ChannelMessage& ChanMsg = msg;
-
-				ChannelMgr* ChannelManager = channelMgr(ChanMsg.ChannelTeam);
-				Channel* TargetChannel = ChannelManager->GetOrCreateChannel(ChanMsg.ChannelName);
-				TargetChannel->Say(ChanMsg.PlayerGuid, ChanMsg.Message.c_str(), ChanMsg.Language, ChanMsg.bSkipChecks);
-				MessageIterator++;
-			}
-		}
-		bIsWorking.store(false);
-
-		std::this_thread::sleep_for(std::chrono::milliseconds(1));
-	}
+        targetChannel->Say(message.PlayerGuid, message.Message.c_str(), message.Language, message.bSkipChecks);
+    }
 }

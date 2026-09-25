@@ -71,8 +71,6 @@ public:
         uint8              Flags;
         std::string        FullName;
         uint32             PermissionMask = 0;
-        // A module binds a free function here; Handler is the core's member pointer.
-        bool             (*ModuleHandler)(ChatHandler* handler, char* args) = nullptr;
 };
 
 enum ChatCommandSearchResult
@@ -155,6 +153,8 @@ class ChatHandler
         * \param char const* channelName       : Required only for CHAT_MSG_CHANNEL
         * \param uint8 playerRank              : Used only for Defensive Channels (Value over 0 will show rank name before character name in channel)
         **/
+        // Convenience for module code that formats into std::string first.
+        void SendSysMessage(std::string const& str) { SendSysMessage(str.c_str()); }
         static void BuildChatPacket(
             WorldPacket& data, ChatMsg msgtype, const std::string& message, Language language = LANG_UNIVERSAL, uint32 chatTag = CHAT_TAG_NONE,
             ObjectGuid const& senderGuid = ObjectGuid(), char const* senderName = nullptr,
@@ -202,6 +202,12 @@ class ChatHandler
         bool HandleListAddonsCommand(char *);
         bool HandleUpdateWorldStateCommand(char *);
         bool HandleCastCustomCommand(char* args);
+        // bot adds .perfmon/.bot/.rndbot commands via ChatHandler.
+        bool HandlePerfMonCommand(char* args);
+        bool HandlePlayerbotCommand(char* args);
+        bool HandleRandomPlayerbotCommand(char* args);
+        bool HandleAhBotCommand(char* args);
+        bool HandleDungeonClearCommand(char* args);
         bool HandleSendSpellVisualCommand(char *);
         bool HandleSendSpellImpactCommand(char *);
         bool HandleServiceDeleteCharacters(char* args);

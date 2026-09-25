@@ -670,34 +670,36 @@ bool Map::ScriptCommand_CreateItem(const ScriptInfo& script, WorldObject* source
         return ShouldAbortScript(script);
     }
 
-    if (Item* pItem = pReceiver->StoreNewItemInInventorySlot(script.createItem.itemId, script.createItem.amount))
-        pReceiver->SendNewItem(pItem, script.createItem.amount, true, false);
-
-    return false;
-}
-
-// SCRIPT_COMMAND_TAKE_MONEY (93)
-bool Map::ScriptCommand_TakeMoney(ScriptInfo const& script, WorldObject* source, WorldObject* target)
-{
-    Player* player;
-
-    if (!((player = ToPlayer(target)) || (player = ToPlayer(source))))
+    uint32 const moneyCost = script.createItem.moneyCost;
+    if (moneyCost && pReceiver->GetMoney() < moneyCost)
     {
-        sLog.outError("SCRIPT_COMMAND_TAKE_MONEY (script id %u) call for a nullptr or non-player object (TypeIdSource: %u)(TypeIdTarget: %u), skipping.", script.id, source ? source->GetTypeId() : 0, target ? target->GetTypeId() : 0);
-        return true;
+        pReceiver->SendBuyError(BUY_ERR_NOT_ENOUGHT_MONEY, ToCreature(source), script.createItem.itemId, 0);
+        return ShouldAbortScript(script);
     }
 
-    if (player->GetMoney() < script.takeMoney.amount)
+    ItemPosCountVec dest;
+    InventoryResult const inventoryResult = pReceiver->CanStoreNewItem(
+        NULL_BAG, NULL_SLOT, dest, script.createItem.itemId, script.createItem.amount);
+    if (inventoryResult != EQUIP_ERR_OK)
     {
-        Creature* creature = ToCreature(source);
-        if (!creature)
-            creature = ToCreature(target);
-
-        player->SendBuyError(BUY_ERR_NOT_ENOUGHT_MONEY, creature, 0, 0);
-        return true;
+        pReceiver->SendEquipError(inventoryResult, nullptr, nullptr, script.createItem.itemId);
+        return ShouldAbortScript(script);
     }
 
-    player->ModifyMoney(-int32(script.takeMoney.amount));
+    if (moneyCost)
+        pReceiver->ModifyMoney(-int32(moneyCost));
+
+    Item* pItem = pReceiver->StoreNewItem(
+        dest, script.createItem.itemId, true,
+        Item::GenerateItemRandomPropertyId(script.createItem.itemId));
+    if (!pItem)
+    {
+        if (moneyCost)
+            pReceiver->ModifyMoney(int32(moneyCost));
+        return ShouldAbortScript(script);
+    }
+
+    pReceiver->SendNewItem(pItem, script.createItem.amount, true, false);
     return false;
 }
 

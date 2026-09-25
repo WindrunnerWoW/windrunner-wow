@@ -19,10 +19,12 @@
  * Foundation, Inc., 59 Temple Place, Suite 330, Boston, MA  02111-1307  USA
  */
 
+#include <atomic>
 #include <unordered_map>
 #include <cmath>
 #include <iostream>
 #include <ctime>
+#include <mutex>
 
 #include "Player.h"
 #include "Language.h"
@@ -31,6 +33,8 @@
 #include "Opcodes.h"
 #include "SpellMgr.h"
 #include "World.h"
+#include "WeeklyQuestLedger.h"
+#include "WeeklyQuestContent.h"
 #include "WorldPacket.h"
 #include "WorldSession.h"
 #include "UpdateMask.h"
@@ -60,6 +64,7 @@
 #include "BattleGroundAV.h"
 #include "BattleGroundSV.h"
 #include "BattleGroundMgr.h"
+
 #include "Chat.h"
 #include "Database/DatabaseImpl.h"
 #include "Spell.h"
@@ -75,7 +80,40 @@
 #include "Config/Config.h"
 #include "ZoneScript.h"
 #include "ZoneScriptMgr.h"
-#include "PlayerAI.h"
+
+namespace
+{
+    // Quest packets for one character are normally serialized by the session
+    // queue. Keep a small server-side guard as a second line of defense for
+    // bot/script callers that can invoke rewards concurrently.
+    std::mutex s_weeklyQuestRewardMutex;
+}
+
+// Player-scoped variant of SC_PHASE — stamps the current thread's last-known
+// phase into TLS read by mangosd's crash handler. Symbols defined in
+// BotDiagnostics.cpp; flag check makes it ~free when diagnostics are off.
+#ifdef BUILD_PLAYERBOTS
+namespace ai { namespace botdiag {
+    bool IsActionLogEnabled();
+    extern thread_local const char* gLastPhaseTag;
+    extern thread_local const char* gLastPhaseBotName;
+}}
+#define SC_PHASE_PLAYER(tag) do { \
+    if (ai::botdiag::IsActionLogEnabled()) { \
+        ai::botdiag::gLastPhaseTag     = (tag); \
+        ai::botdiag::gLastPhaseBotName = GetName(); \
+    } \
+} while (0)
+#else
+#define SC_PHASE_PLAYER(tag) do {} while (0)
+#endif
+// PlayerBotMgr.h + PlayerBotAI.h removed (Penqle stub binned). The bot
+// module pulls in its own PlayerbotMgr.h / PlayerbotAI.h via the playerbots
+// vendor tree. PlayerAI.h is restored as a direct include (was previously
+// transitively included via PlayerBotAI.h). PlayerAI / PlayerControlledAI
+// are non-bot classes used for AI control of players (mind control, charm,
+// etc.) and are unrelated to the bot system.
+#include "AI/PlayerAI.h"
 #include "AccountMgr.h"
 #include "MoveSpline.h"
 #include "Anticheat/Anticheat.h"
@@ -87,6 +125,9 @@
 #include "events/event_wareffort.h"
 #include "Logging/DatabaseLogger.hpp"
 #include "PerfStats.h"
+#ifdef ENABLE_ELUNA
+#include "LuaEngine.h"
+#endif
 #include "PlayerDump.h"
 #include "Shop/ShopMgr.h"
 
@@ -105,6 +146,13 @@
 #define SKILL_TEMP_BONUS(x)    int16(PAIR32_LOPART(x))
 #define SKILL_PERM_BONUS(x)    int16(PAIR32_HIPART(x))
 #define MAKE_SKILL_BONUS(t, p) MAKE_PAIR32(t,p)
+
+namespace
+{
+    constexpr uint32 SPELL_FIND_HERBS = 2383;
+    constexpr uint32 SPELL_FIND_MINERALS = 2580;
+    constexpr uint32 SPELL_FIND_HERBS_AND_MINERALS = 61002;
+}
 
 // [-ZERO] need recheck, some values known not existed in 1.12.1
 enum CharacterFlags
@@ -386,10 +434,37 @@ bool PlayerTaxi::LoadTaxiDestinationsFromString(std::string const& values, Team 
     return sObjectMgr.GetTaxiMountDisplayId(GetTaxiSource(), team, true) != 0;
 }
 
+void PlayerTaxi::ReportOutOfRangeTaxiNode(uint32 nodeidx, uint8 field) const
+{
+    // Which caller passes an out-of-range node is still unknown - all six call
+    // sites read as either in-range or already guarded, and TaxiNodes.dbc tops
+    // out far below the limit. So say what came in. Sparingly: if this turns
+    // out to sit in a retry loop, it must not drown the log.
+    static std::atomic<uint32> seen{0};
+    uint32 const n = ++seen;
+    if (n <= 20 || (n % 1000) == 0)
+        sLog.outError("PlayerTaxi::SetTaximaskNode: node %u out of range (field %u, mask holds %u) - "
+                      "ignored, occurrence %u. Before the bounds check this wrote past m_taximask "
+                      "into m_TaxiDestinations.",
+                      nodeidx, uint32(field), uint32(m_taximask.size()), n);
+}
+
 std::string PlayerTaxi::SaveTaxiDestinationsToString() const
 {
     if (m_TaxiDestinations.size() < 2)
         return "";
+
+    // Canary, not a fix. A real flight path is a handful of hops, so a count
+    // like this means the deque's own bookkeeping has been overwritten - and
+    // indexing it below would fault. Bail and say so instead. If this ever
+    // fires, something is writing past its neighbour again; the bounds check
+    // in SetTaximaskNode was the known way for that to happen.
+    if (m_TaxiDestinations.size() > 500)
+    {
+        sLog.outError("PlayerTaxi::SaveTaxiDestinationsToString: implausible destination count %zu - "
+                      "treating the deque as corrupt and saving nothing.", m_TaxiDestinations.size());
+        return "";
+    }
 
     std::ostringstream ss;
 
@@ -597,44 +672,6 @@ void TradeData::SetAccepted(bool state, bool crosssend /*= false*/)
 }
 
 //== Player ====================================================
-
-// Server-side / scriptable trade initiation. Mirrors the setup of
-// WorldSession::HandleInitiateTradeOpcode (same guards), but performs no item,
-// gold or accept action -- the actual exchange stays fully gated by the normal
-// HandleAcceptTradeOpcode path. Purely additive; no existing code path changes.
-bool Player::BeginTradeWith(Player* other)
-{
-    if (!other || other == this)
-        return false;
-    if (m_trade || other->m_trade)
-        return false;
-    if (!IsAlive() || !other->IsAlive())
-        return false;
-    if (HasUnitState(UNIT_STAT_STUNNED | UNIT_STAT_PENDING_STUNNED) ||
-        other->HasUnitState(UNIT_STAT_STUNNED | UNIT_STAT_PENDING_STUNNED))
-        return false;
-    if ((GetSession() && GetSession()->isLogingOut()) ||
-        (other->GetSession() && other->GetSession()->isLogingOut()))
-        return false;
-    if (IsTaxiFlying() || other->IsTaxiFlying() || !FindMap() || GetMap() != other->GetMap())
-        return false;
-    if (GetDistance3dToCenter(other) > TRADE_DISTANCE)
-        return false;
-    if (!sWorld.getConfig(CONFIG_BOOL_ALLOW_TWO_SIDE_INTERACTION_TRADE) && GetTeam() != other->GetTeam())
-        return false;
-
-    m_trade = new TradeData(this, other);
-    other->m_trade = new TradeData(other, this);
-    m_trade->SetScamPreventionDelay(200);
-    other->m_trade->SetScamPreventionDelay(200);
-
-    WorldPacket data(SMSG_TRADE_STATUS, 12);
-    data << uint32(TRADE_STATUS_BEGIN_TRADE);
-    data << ObjectGuid(GetObjectGuid());
-    if (other->GetSession())
-        other->GetSession()->SendPacket(&data);
-    return true;
-}
 
 UpdateMask Player::updateVisualBits;
 
@@ -1257,6 +1294,12 @@ uint32 Player::EnvironmentalDamage(EnvironmentalDamageType type, uint32 damage)
 
     damage = DealDamage(this, damage, nullptr, SELF_DAMAGE, SPELL_SCHOOL_MASK_NORMAL, nullptr, false);
 
+#ifdef ENABLE_ELUNA
+    if (!IsAlive())
+        if (Eluna* e = GetEluna())
+            e->OnPlayerKilledByEnvironment(this, type);
+#endif
+
     // DealDamage not apply item durability loss at self damage
     // Confirmed on classic that dying from lava, fatigue and
     // drowning causes durability loss. Probably applies to all.
@@ -1621,11 +1664,18 @@ void Player::Update(uint32 update_diff, uint32 p_time)
         i_AI->UpdateAI(p_time);
     SetCanDelayTeleport(false);
 
+    // The per-Player bot tick used to sit here. It is PlayerScript::OnUpdate now,
+    // fired at the end of this function instead of right after Unit::Update. Both
+    // positions are after Unit::Update, so a driven character still decides on
+    // settled movement and aura state; at the new one its own regen and timers
+    // have run too.
+
     time_t now = time(nullptr);
 
     UpdatePvPFlagTimer(update_diff);
 
     UpdatePvPContestedFlagTimer(update_diff);
+    SC_PHASE_PLAYER("Player::Update.afterPvPFlags");
 
     // Delay delete duel
     if (m_duel && m_duel->finished)
@@ -1704,6 +1754,7 @@ void Player::Update(uint32 update_diff, uint32 p_time)
         }
     }
 
+    SC_PHASE_PLAYER("Player::Update.beforeMeleeAttackingState");
     if (HasUnitState(UNIT_STAT_MELEE_ATTACKING))
     {
         bool attacked = UpdateMeleeAttackingState();
@@ -1737,6 +1788,7 @@ void Player::Update(uint32 update_diff, uint32 p_time)
             m_weaponChangeTimer -= update_diff;
     }
 
+    SC_PHASE_PLAYER("Player::Update.beforeZoneUpdate");
     if (m_zoneUpdateTimer > 0)
     {
         if (update_diff >= m_zoneUpdateTimer)
@@ -1758,10 +1810,12 @@ void Player::Update(uint32 update_diff, uint32 p_time)
         else
             m_zoneUpdateTimer -= update_diff;
     }
+    SC_PHASE_PLAYER("Player::Update.afterZoneUpdate");
 
     if (m_cannotBeDetectedTimer > 0)
         m_cannotBeDetectedTimer -= update_diff;
 
+    SC_PHASE_PLAYER("Player::Update.beforeRegenerateAll");
     if (IsAlive())
     {
         m_regenTimer -= update_diff;
@@ -1788,6 +1842,7 @@ void Player::Update(uint32 update_diff, uint32 p_time)
     if (m_deathState == JUST_DIED)
         KillPlayer();
 
+    SC_PHASE_PLAYER("Player::Update.beforeSaveToDB");
     if (m_nextSave > 0)
     {
         if (update_diff >= m_nextSave)
@@ -1799,6 +1854,7 @@ void Player::Update(uint32 update_diff, uint32 p_time)
         else
             m_nextSave -= update_diff;
     }
+    SC_PHASE_PLAYER("Player::Update.afterSaveToDB");
 
     // Played time
     if (now > m_Last_tick)
@@ -1832,6 +1888,7 @@ void Player::Update(uint32 update_diff, uint32 p_time)
             m_deathTimer -= p_time;
     }
 
+    SC_PHASE_PLAYER("Player::Update.beforeUpdateEnchant");
     UpdateEnchantTime(update_diff);
     UpdateHomebindTime(update_diff);
 
@@ -1839,13 +1896,16 @@ void Player::Update(uint32 update_diff, uint32 p_time)
         UpdateCinematic(p_time);
 
     // group update
+    SC_PHASE_PLAYER("Player::Update.beforeSendUpdateToOutOfRangeGroupMembers");
     SendUpdateToOutOfRangeGroupMembers();
+    SC_PHASE_PLAYER("Player::Update.afterSendUpdateToOutOfRangeGroupMembers");
 
     if (IsHasDelayedTeleport())
         TeleportTo(m_teleport_dest, m_teleport_options);
     // Movement extrapolation & cheat computation - only if not already kicked!
     if (!GetSession()->IsConnected())
         return;
+    SC_PHASE_PLAYER("Player::Update.afterTeleportCheck");
 
     if (!IsTaxiFlying() && IsInWorld() && GetMap()->IsContinent() && !GetTransport() && !IsBeingTeleported())
     {
@@ -1856,6 +1916,7 @@ void Player::Update(uint32 update_diff, uint32 p_time)
                 sMapMgr.ScheduleInstanceSwitch(this, newInstanceId);
     }
 
+    SC_PHASE_PLAYER("Player::Update.beforeIsInWorldBlock");
     if (IsInWorld())
     {
         if (m_repopAtGraveyardPending && !HasPendingMovementChange())
@@ -1864,18 +1925,24 @@ void Player::Update(uint32 update_diff, uint32 p_time)
             return;
         }
 
+        SC_PHASE_PLAYER("Player::Update.beforeAreaCheck");
         if (m_areaCheckTimer)
         {
             if (m_areaCheckTimer <= p_time)
             {
+                SC_PHASE_PLAYER("Player::Update.UpdateTerainEnvironmentFlags");
                 UpdateTerainEnvironmentFlags();
+                SC_PHASE_PLAYER("Player::Update.CheckAreaExploreAndOutdoor");
                 CheckAreaExploreAndOutdoor();
+                SC_PHASE_PLAYER("Player::Update.LoadMapCellsAround");
                 LoadMapCellsAround(GetGridActivationDistance());
+                SC_PHASE_PLAYER("Player::Update.afterLoadMapCellsAround");
                 m_areaCheckTimer = 0;
             }
             else
                 m_areaCheckTimer -= p_time;
         }
+        SC_PHASE_PLAYER("Player::Update.afterAreaCheck");
 
         if (m_standStateTimer)
         {
@@ -1904,12 +1971,14 @@ void Player::Update(uint32 update_diff, uint32 p_time)
         }
 
         UpdateVelocity();
+        SC_PHASE_PLAYER("Player::Update.afterUpdateVelocity");
         // Anticheat sanction
        // std::stringstream reason;
        // uint32 cheatAction = GetCheatData()->Update(p_time, reason);
         //if (cheatAction)
         //    GetSession()->ProcessAnticheatAction("MovementAnticheat", reason.str().c_str(), cheatAction, sWorld.getConfig(CONFIG_UINT32_AC_MOVEMENT_BAN_DURATION));
     }
+    SC_PHASE_PLAYER("Player::Update.afterIsInWorldBlock");
 
     // Hardcore mode safe update
     if (IsHardcore())
@@ -1937,6 +2006,7 @@ void Player::Update(uint32 update_diff, uint32 p_time)
                 m_hardcoreSaveItemsTimer -= update_diff;
         }
     }
+    SC_PHASE_PLAYER("Player::Update.exit");
 
     ScriptRegistry<PlayerScript>::ForEachEnabledHook(PLAYERHOOK_ON_UPDATE, [&](PlayerScript* script)
     {
@@ -1969,7 +2039,7 @@ void Player::OnDisconnected()
             }, 1);
         }
 
-        // Update position after disconnect
+        // Update position after bot takes over
         // And remove movement flags, so he doesn't run into the void
         if (!GetMover()->HasUnitState(UNIT_STAT_FLEEING | UNIT_STAT_CONFUSED | UNIT_STAT_TAXI_FLIGHT))
         {
@@ -2600,6 +2670,14 @@ bool Player::SwitchInstance(uint32 newInstanceId)
 
 bool Player::TeleportTo(uint32 mapid, float x, float y, float z, float orientation, uint32 options)
 {
+    // DIAG(temp, Z-GEIST): a dungeon-clear test tank ended up parked at
+    // Z=203 over the Deadmines (overworld height inside map 36). Every
+    // player teleport into that band logs loudly so a debugger can break on
+    // THIS line - inline-condition breakpoints proved unreliable here.
+    if (mapid == 36 && z > 150.0f)
+        sLog.outError("[Z-GEIST] %s teleport -> map36 %.1f/%.1f/%.1f (opts %u)",
+                      GetName(), x, y, z, options);
+
     if (!MapManager::IsValidMapCoord(mapid, x, y, z, orientation))
     {
         sLog.outError("TeleportTo: invalid map %d or absent instance template.", mapid);
@@ -2999,7 +3077,12 @@ void Player::RemoveFromWorld()
     ///- The player should only be removed when logging out
     if (IsInWorld())
     {
-        GetSession()->GetAntiCheat()->LeaveWorld();
+        // GetAntiCheat() is null for
+        // synthetic bot sessions. See CheckAreaExploreAndOutdoor for the
+        // canonical write-up. This call site fires on bot logout —
+        // unguarded it would crash on every bot disconnect.
+        if (auto* anticheat = GetSession()->GetAntiCheat())
+            anticheat->LeaveWorld();
         GetCamera().ResetView();
     }
 
@@ -3646,10 +3729,6 @@ void Player::GiveXP(uint32 xp, Unit* victim)
     if (!IsAlive())
         return;
 
-    if (HasChallenge(CHALLENGE_BREWMASTER) &&
-        GetDrunkenstateByValue(GetDrunkValue()) != DRUNKEN_SMASHED)
-        return;
-
     uint32 level = GetLevel();
 
     if (IsHardcore() && InBattleGround())
@@ -3837,15 +3916,6 @@ void Player::GiveLevel(uint32 level)
         }
     }
 
-    if (HasChallenge(CHALLENGE_CRAFTMASTER) && level == PLAYER_MAX_LEVEL)
-        AwardTitle(TITLE_CRAFTMASTER);
-
-    if (HasChallenge(CHALLENGE_BREWMASTER) && level == PLAYER_MAX_LEVEL)
-    {
-        AwardTitle(TITLE_BREWMASTER);
-        MailBrewmasterModeRewards();
-    }
-
     if (HasChallenge(CHALLENGE_BOARING_MODE))
     {
         if (level == PLAYER_MAX_LEVEL)
@@ -3930,16 +4000,22 @@ void Player::GiveLevel(uint32 level)
             BattleGroundTypeId bgTypeId = BattleGroundMgr::BGTemplateId(bgQueueTypeId);
             if (GetBattleGroundBracketIdFromLevel(bgTypeId, level) != GetBattleGroundBracketIdFromLevel(bgTypeId, GetLevel()))
             {
-                BattleGroundBracketId const oldBracketId = GetBattleGroundBracketIdFromLevel(bgTypeId, GetLevel());
+                BattleGroundQueue& bgQueue = sBattleGroundMgr.m_BattleGroundQueues[bgQueueTypeId];
+                GroupQueueInfo ginfo;
+                if (!bgQueue.GetPlayerGroupInfoData(GetObjectGuid(), &ginfo))
+                    continue;
 
-                // Player::GiveLevel can run on a map worker. Keep only player-local
-                // state and the client notification here; the global queue belongs
-                // to the world thread and is cleaned up after map updates finish.
+                BattleGround* bg = sBattleGroundMgr.GetBattleGround(ginfo.IsInvitedToBGInstanceGUID, bgTypeId);
+                if (!bg)
+                    bg = sBattleGroundMgr.GetBattleGroundTemplate(bgTypeId);
+
                 WorldPacket data;
-                RemoveBattleGroundQueueId(bgQueueTypeId);
-                sBattleGroundMgr.BuildBattleGroundStatusPacket(&data, nullptr, queueSlot, STATUS_NONE, 0, 0);
+                RemoveBattleGroundQueueId(bgQueueTypeId);  // must be called this way, because if you move this call to queue->removeplayer, it causes bugs
+                sBattleGroundMgr.BuildBattleGroundStatusPacket(&data, bg, queueSlot, STATUS_NONE, 0, 0);
+                bgQueue.RemovePlayer(GetObjectGuid(), true);
+                // player left queue, we should update it
+                sBattleGroundMgr.ScheduleQueueUpdate(bgQueueTypeId, bgTypeId, GetBattleGroundBracketIdFromLevel(bgTypeId, GetLevel()));
                 GetSession()->SendPacket(&data);
-                sBattleGroundMgr.ScheduleQueueBracketCleanup(GetObjectGuid(), bgQueueTypeId, bgTypeId, oldBracketId);
             }
         }
     }
@@ -4009,6 +4085,9 @@ void Player::GiveLevel(uint32 level)
     // update level to hunter/summon pet
     if (Pet* pet = GetPet())
         pet->SynchronizeLevelWithOwner();
+
+    // Penqle stub's OnLevelUp bot hook removed — cmangos's bot factory
+    // re-grants level-appropriate gear/talents via different mechanism.
 
     CheckInfernoInvite();
 
@@ -4576,6 +4655,21 @@ bool Player::IsNeedCastPassiveLikeSpellAtLearn(SpellEntry const* spellInfo) cons
     return need_cast && (!spellInfo->CasterAuraState || HasAuraState(AuraState(spellInfo->CasterAuraState)));
 }
 
+void Player::UpdateCombinedGatheringTrackingSpell()
+{
+    bool hasHerbalism = HasSkill(SKILL_HERBALISM);
+    bool hasMining = HasSkill(SKILL_MINING);
+    bool hasCombined = HasSpell(SPELL_FIND_HERBS_AND_MINERALS);
+
+    if (hasHerbalism && hasMining)
+    {
+        if (!hasCombined)
+            LearnSpell(SPELL_FIND_HERBS_AND_MINERALS, false);
+    }
+    else if (hasCombined)
+        RemoveSpell(SPELL_FIND_HERBS_AND_MINERALS, false, false);
+}
+
 void Player::LearnSpell(uint32 spell_id, bool dependent, bool talent)
 {
     PlayerSpellMap::iterator itr = m_spells.find(spell_id);
@@ -4608,6 +4702,9 @@ void Player::LearnSpell(uint32 spell_id, bool dependent, bool talent)
                 LearnSpell(i->second, false);
         }
     }
+
+    if (spell_id == SPELL_FIND_HERBS || spell_id == SPELL_FIND_MINERALS)
+        UpdateCombinedGatheringTrackingSpell();
 }
 
 void Player::RemoveSpell(uint32 spell_id, bool disabled, bool learn_low_rank, bool hardReset)
@@ -5656,6 +5753,7 @@ void Player::DeleteFromDB(ObjectGuid playerguid, uint32 accountId, bool updateRe
             CharacterDatabase.PExecute("DELETE FROM group_instance WHERE leaderGuid = '%u'", lowguid);
             CharacterDatabase.PExecute("DELETE FROM character_inventory WHERE guid = '%u'", lowguid);
             CharacterDatabase.PExecute("DELETE FROM character_queststatus WHERE guid = '%u'", lowguid);
+            CharacterDatabase.PExecute("DELETE FROM character_weekly_quest WHERE guid = '%u'", lowguid);
             CharacterDatabase.PExecute("DELETE FROM character_reputation WHERE guid = '%u'", lowguid);
             CharacterDatabase.PExecute("DELETE FROM character_skills WHERE guid = '%u'", lowguid);
             CharacterDatabase.PExecute("DELETE FROM character_forgotten_skills WHERE guid = '%u'", lowguid);
@@ -5854,6 +5952,11 @@ void Player::ResurrectPlayer(float restore_percent, bool applySickness, bool for
     m_camera.UpdateVisibilityForOwner();
     // update visibility of player for nearby cameras
     UpdateObjectVisibility();
+
+#ifdef ENABLE_ELUNA
+    if (Eluna* e = GetEluna())
+        e->OnResurrect(this);
+#endif
 
     if (!applySickness)
         return;
@@ -6459,10 +6562,44 @@ void Player::RepopAtGraveyard()
     // Special handle for battleground maps
     uint32 TeleOptions = TELE_TO_NOT_UNSUMMON_PET;
 
-    // A managed bot cannot click an instance portal: released to the outdoor
-    // graveyard it would stand there as a ghost for good while its group carried
-    // on. So it comes back alive just inside the instance entrance instead.
-    bool const repopAtEntrance = sScriptMgr.IsBotManaged(this);
+    // Solo dungeon resurrection: a player who dies ALONE inside an instance is
+    // brought back alive just inside the entrance instead of having to walk
+    // back as a ghost - solo there is nobody who could resurrect them.
+    //
+    // The target is the instance ENTRANCE trigger, not a graveyard: instance
+    // graveyards sit outside the instance (that is what the corpse run is for),
+    // so resurrecting at one would drop the player out of the dungeon.
+    //
+    // Deliberately solo only - with a group present someone can resurrect, and
+    // this would be a free pass. Map::IsDungeon() covers raids and excludes
+    // battlegrounds, which are their own map type.
+    // Bots get this regardless of the config and regardless of a group: they
+    // cannot walk back in through an instance portal (LfgTeleportAction is
+    // MANGOSBOT_TWO only), so a wipe would strand them as ghosts at the outdoor
+    // graveyard for good and the group would be over. Not a perk - the only way
+    // back to the party.
+    // "Solo" means nobody who could resurrect you: no group, or a group whose
+    // only other members are bots. After a wipe a bot party is no more help
+    // than an empty one, and releasing the spirit already means you chose not
+    // to wait for a resurrection.
+    bool noHumanHelp = !GetGroup();
+    if (!noHumanHelp)
+    {
+        noHumanHelp = true;
+        for (GroupReference* itr = GetGroup()->GetFirstMember(); itr; itr = itr->next())
+        {
+            Player* member = itr->getSource();
+            if (member && member != this && !Script_IsAIControlled(member))
+            {
+                noHumanHelp = false;
+                break;
+            }
+        }
+    }
+
+    bool const repopAtEntrance =
+        (sWorld.getConfig(CONFIG_BOOL_SOLO_DUNGEON_REPOP_ALIVE) && noHumanHelp) ||
+        Script_IsAIControlled(this);
 
     if (!IsAlive() && repopAtEntrance && GetMap() && GetMap()->IsDungeon())
     {
@@ -6496,7 +6633,7 @@ void Player::RepopAtGraveyard()
         }
     }
     else
-    { 
+    {
         // If no grave found, stay at the current location
         // and don't show spirit healer location
         if (ClosestGrave)
@@ -6929,6 +7066,10 @@ bool Player::UpdateSkillPro(uint16 SkillId, int32 Chance, uint32 step)
         SetUInt32Value(valueIndex, MAKE_SKILL_VALUE(new_value, MaxValue));
         if (itr->second.uState != SKILL_NEW)
             itr->second.uState = SKILL_CHANGED;
+#ifdef ENABLE_ELUNA
+        if (Eluna* e = GetEluna())
+            e->OnSkillChange(this, SkillId, new_value);
+#endif
         DEBUG_LOG("Player::UpdateSkillPro Chance=%3.1f%% taken", Chance / 10.0);
         return true;
     }
@@ -7059,7 +7200,7 @@ void Player::UpdateSkillsForLevel()
         if (!pSkill)
             continue;
 
-        SkillRaceClassInfoEntry const* rcEntry = sSpellMgr.GetSkillRaceClassInfo(pskill, GetRace(), GetClass());
+        SkillRaceClassInfoEntry const* rcEntry = GetSkillRaceClassInfo(pskill, GetRace(), GetClass());
         if (!rcEntry)
             continue;
 
@@ -7141,6 +7282,9 @@ void Player::SetSkill(uint16 id, uint16 currVal, uint16 maxVal, uint16 step /*=0
 
             // Learn all spells auto-trained by this skill on change
             UpdateSkillTrainedSpells(id, currVal);
+
+            if (id == SKILL_HERBALISM || id == SKILL_MINING)
+                UpdateCombinedGatheringTrackingSpell();
         }
         else                                                //remove
         {
@@ -7170,6 +7314,9 @@ void Player::SetSkill(uint16 id, uint16 currVal, uint16 maxVal, uint16 step /*=0
 
             // Remove all spells dependent on this skill unconditionally
             UpdateSkillTrainedSpells(id, 0);
+
+            if (id == SKILL_HERBALISM || id == SKILL_MINING)
+                UpdateCombinedGatheringTrackingSpell();
 
             // remove all quests related to this skill (else the spell will be automatically learned at next login, cf Player::LearnQuestRewardedSpells)
             for (auto& itr : mQuestStatus)
@@ -7239,6 +7386,9 @@ void Player::SetSkill(uint16 id, uint16 currVal, uint16 maxVal, uint16 step /*=0
 
                 // Learn all spells auto-trained by this skill
                 UpdateSkillTrainedSpells(id, currVal);
+
+                if (id == SKILL_HERBALISM || id == SKILL_MINING)
+                    UpdateCombinedGatheringTrackingSpell();
                 return;
             }
         }
@@ -7431,7 +7581,7 @@ void Player::UpdateSpellTrainedSkills(uint32 spellId, bool apply, bool hardReset
                 if (HasSkill(uint16(pSkill->id)))
                     continue;
 
-                SkillRaceClassInfoEntry const* rcInfo = sSpellMgr.GetSkillRaceClassInfo(pSkill->id, GetRace(), GetClass());
+                SkillRaceClassInfoEntry const* rcInfo = GetSkillRaceClassInfo(pSkill->id, GetRace(), GetClass());
                 if (!rcInfo)
                     continue;
 
@@ -7665,6 +7815,7 @@ bool Player::HasAllZonesExplored()
 
 void Player::CheckAreaExploreAndOutdoor()
 {
+    SC_PHASE_PLAYER("CheckAreaExploreAndOutdoor.entry");
     if (!IsAlive())
         return;
 
@@ -7675,8 +7826,10 @@ void Player::CheckAreaExploreAndOutdoor()
     if (watching_cinematic_entry)
         return;
 
+    SC_PHASE_PLAYER("CheckAreaExploreAndOutdoor.GetTerrain");
     bool isOutdoor;
     uint16 areaFlag = GetTerrain()->GetAreaFlag(GetPositionX(), GetPositionY(), GetPositionZ(), &isOutdoor);
+    SC_PHASE_PLAYER("CheckAreaExploreAndOutdoor.afterGetAreaFlag");
 
     if (isOutdoor)
     {
@@ -7732,17 +7885,31 @@ void Player::CheckAreaExploreAndOutdoor()
 
     if (!(currFields & val))
     {
+        SC_PHASE_PLAYER("CheckAreaExploreAndOutdoor.newAreaDiscovered");
         SetUInt32Value(PLAYER_EXPLORED_ZONES_1 + offset, (uint32)(currFields | val));
 
+        SC_PHASE_PLAYER("CheckAreaExploreAndOutdoor.titleCheck");
         if (HasEarnedTitle(TITLE_CARTOGRAPHER))
             AwardTitle(TITLE_CARTOGRAPHER);
 
+        SC_PHASE_PLAYER("CheckAreaExploreAndOutdoor.areaEntryLookup");
         const auto *p = AreaEntry::GetByAreaFlagAndMap(areaFlag, GetMapId());
         if (!p)
             sLog.outError("PLAYER: Player %u discovered unknown area (x: %f y: %f map: %u", GetGUIDLow(), GetPositionX(), GetPositionY(), GetMapId());
         else
         {
-            GetSession()->GetAntiCheat()->OnExplore(p);
+            SC_PHASE_PLAYER("CheckAreaExploreAndOutdoor.anticheatOnExplore");
+            // GetAntiCheat() returns
+            // null for synthetic bot sessions (cmangos/playerbots constructs
+            // WorldSessions directly via NewSession, bypassing the WorldSocket
+            // auth handshake that calls InitAntiCheatSession). Other call
+            // sites in this codebase use `if (auto antiCheat = ...)` (see
+            // Unit.cpp:10584); the guard here was missing. Crash signature:
+            // NULL READ at 0x0, phase=CheckAreaExploreAndOutdoor.anticheatOnExplore,
+            // bot=<warlock random bot at Slaughtered Lamb>.
+            if (auto* anticheat = GetSession()->GetAntiCheat())
+                anticheat->OnExplore(p);
+            SC_PHASE_PLAYER("CheckAreaExploreAndOutdoor.afterAnticheatOnExplore");
             //GetCheatData()->OnExplore(p);
             uint32 area = p->Id;
             uint32 xp = 0;
@@ -7770,7 +7937,12 @@ void Player::CheckAreaExploreAndOutdoor()
                     xp = xp + (xp * 0.2f);
 
                 // Fuck teleport leveling:
-                if (GetLevel() < 16) // Chinese config limitation for the world chat.
+                // Original Turtle WoW has no playerbots, so this check assumed all
+                // sub-16 players in a high-level zone are exploiting. Bots are
+                // routinely teleported everywhere by the bot system and must be
+                // excluded, otherwise every bot login at a saved high-level position
+                // spams false-positive errors.
+                if (GetLevel() < 16 && !Script_IsAIControlled(this)) // Chinese config limitation for the world chat.
                 {
                     if (uint32(p->AreaLevel) > 20)
                     {
@@ -7780,6 +7952,7 @@ void Player::CheckAreaExploreAndOutdoor()
                     }
 
                 }
+                SC_PHASE_PLAYER("CheckAreaExploreAndOutdoor.beforeGiveXP");
 
                 if (HasChallenge(CHALLENGE_HEROIC))
                     xp = 0;
@@ -7788,13 +7961,17 @@ void Player::CheckAreaExploreAndOutdoor()
                     xp = 0;
 
                 GiveXP(xp, nullptr);
+                SC_PHASE_PLAYER("CheckAreaExploreAndOutdoor.afterGiveXP");
             }
 
             // Exploration packet should be sent even if no XP is gained.
+            SC_PHASE_PLAYER("CheckAreaExploreAndOutdoor.SendExplorationExperience");
             SendExplorationExperience(area, xp);
+            SC_PHASE_PLAYER("CheckAreaExploreAndOutdoor.afterSendExplorationExperience");
             DETAIL_LOG("PLAYER: Player %u discovered a new area: %u", GetGUIDLow(), area);
         }
     }
+    SC_PHASE_PLAYER("CheckAreaExploreAndOutdoor.exit");
 }
 
 Team Player::TeamForRace(uint8 race)
@@ -7952,6 +8129,9 @@ void Player::RewardReputation(Unit *pVictim, float rate)
     if (pVictim->IsPet())
         return;
 
+    if (static_cast<Creature*>(pVictim)->IsReputationGainDisabled())
+        return;
+
     ReputationOnKillEntry const* Rep = sObjectMgr.GetReputationOnKillEntry(((Creature*)pVictim)->GetEntry());
 
     if (!Rep)
@@ -8030,7 +8210,7 @@ uint32 Player::GetGuildIdFromDB(ObjectGuid guid)
 
 uint32 Player::GetRankFromDB(ObjectGuid guid)
 {
-    QueryResult *result = CharacterDatabase.PQuery("SELECT `rank` FROM guild_member WHERE guid='%u'", guid.GetCounter());
+    QueryResult *result = CharacterDatabase.PQuery("SELECT rank FROM guild_member WHERE guid='%u'", guid.GetCounter());
     if (result)
     {
         uint32 v = result->Fetch()[0].GetUInt32();
@@ -11728,14 +11908,6 @@ InventoryResult Player::CanEquipItem(uint8 slot, uint16 &dest, ItemPrototype con
             if (IsInCombat() && pProto->Class == ITEM_CLASS_WEAPON && m_weaponChangeTimer != 0)
                 return EQUIP_ERR_CANT_DO_RIGHT_NOW;         // maybe exist better err
 
-            if (HasChallenge(CHALLENGE_CRAFTMASTER) && GetLevel() < PLAYER_MAX_LEVEL &&
-                pProto->InventoryType != INVTYPE_TABARD &&
-                (!pItem || pItem->GetGuidValue(ITEM_FIELD_CREATOR) != GetObjectGuid()))
-            {
-                GetSession()->SendNotification("You can only equip items you crafted yourself in the Traveling Craftmaster challenge.");
-                return EQUIP_ERR_CANT_DO_RIGHT_NOW;
-            }
-
             if (HasChallenge(CHALLENGE_VAGRANT_MODE) && GetLevel() < PLAYER_MAX_LEVEL)
             {
                 if (pProto->Quality > ITEM_QUALITY_NORMAL)
@@ -12198,6 +12370,11 @@ Item* Player::StoreNewItem(ItemPosCountVec const& dest, uint32 item, bool update
         if (randomPropertyId)
             pItem->SetItemRandomProperties(randomPropertyId);
         pItem = StoreItem(dest, pItem, update);
+#ifdef ENABLE_ELUNA
+        if (pItem)
+            if (Eluna* e = GetEluna())
+                e->OnAdd(this, pItem);
+#endif
     }
     return pItem;
 }
@@ -14573,6 +14750,9 @@ bool Player::CanSeeStartQuest(Quest const *pQuest) const
 
 bool Player::CanTakeQuest(Quest const *pQuest, bool msg, bool skipStatusCheck /*false*/) const
 {
+    if (pQuest->IsWeekly() && !IsWeeklyQuestEligible(pQuest))
+        return false;
+
     if (pQuest->GetMaxLevel() && pQuest->GetMaxLevel() < GetLevel())
         return false;
 
@@ -14710,6 +14890,13 @@ bool Player::CanCompleteRepeatableQuest(Quest const *pQuest) const
 
 bool Player::CanRewardQuest(Quest const *pQuest, bool msg) const
 {
+    if (pQuest->IsWeekly() && !IsWeeklyQuestEligible(pQuest))
+    {
+        if (msg)
+            SendCanTakeQuestResponse(INVALIDREASON_DONT_HAVE_REQ);
+        return false;
+    }
+
     if (!SatisfyQuestChallenges(pQuest, msg))
         return false;
 
@@ -15101,6 +15288,34 @@ void Player::RewardQuest(Quest const *pQuest, uint32 reward, WorldObject* questE
 {
     uint32 quest_id = pQuest->GetQuestId();
 
+    // Reserve the period durably before applying any reward. Legacy character
+    // tables use mixed storage engines, so the ledger cannot be made atomic
+    // with the full character save. Keeping a successful reservation even if
+    // that save later fails prevents a duplicate economy payout.
+    const bool weeklyReward = pQuest->IsWeekly();
+    if (weeklyReward)
+    {
+        std::lock_guard<std::mutex> weeklyRewardLock(s_weeklyQuestRewardMutex);
+        const uint64 weeklyPeriod = WeeklyQuestLedger::GetCurrentPeriod(sWorld.GetGameTime());
+        if (!weeklyPeriod)
+        {
+            sLog.outError("Player::RewardQuest: weekly reward refused because the reset schedule is invalid (player %u, quest %u).", GetGUIDLow(), quest_id);
+            return;
+        }
+
+        if (!IsWeeklyQuestEligible(pQuest))
+            return;
+
+        if (!WeeklyQuestLedger::RecordCompletion(GetGUIDLow(), quest_id, weeklyPeriod))
+        {
+            sLog.outError("Player::RewardQuest: failed to reserve weekly reward (player %u, quest %u, period " UI64FMTD ").",
+                GetGUIDLow(), quest_id, weeklyPeriod);
+            return;
+        }
+
+        m_weeklyQuestPeriods[quest_id] = weeklyPeriod;
+    }
+
     for (int i = 0; i < QUEST_ITEM_OBJECTIVES_COUNT; ++i)
     {
         if (pQuest->ReqItemId[i])
@@ -15298,6 +15513,16 @@ void Player::RewardQuest(Quest const *pQuest, uint32 reward, WorldObject* questE
     {
         AwardTitle(TITLE_SEEKER_OF_KNOWLEDGE);
         sWorld.SendWorldText(50305, GetName());
+    }
+
+    if (weeklyReward)
+    {
+        // Bypass delayed teleport saves and wait for the database result. If
+        // this fails, keep the durable reservation and the in-memory reward;
+        // a later normal save may recover it without enabling another claim.
+        if (!SaveToDB(true, true, true))
+            sLog.outError("Player::RewardQuest: weekly reward state could not be saved; reservation retained to prevent a duplicate payout (player %u, quest %u).",
+                GetGUIDLow(), quest_id);
     }
 }
 
@@ -15822,6 +16047,11 @@ void Player::SetQuestStatus(uint32 quest_id, QuestStatus status)
 
         UpdateForQuestWorldObjects();
     }
+
+#ifdef ENABLE_ELUNA
+    if (Eluna* e = GetEluna())
+        e->OnQuestStatusChanged(this, quest_id, status);
+#endif
 }
 
 void Player::AdjustQuestReqItemCount(Quest const* pQuest, QuestStatusData& questStatusData)
@@ -16014,6 +16244,9 @@ void Player::KilledMonster(CreatureInfo const* cInfo, ObjectGuid guid)
                 {
                     script->OnCreatureKill(this, creature);
                 });
+
+                if (map->IsRaid() && creature->IsWorldBoss())
+                    KilledMonsterCredit(WeeklyQuestContent::RaidBossCredit, guid);
             }
         }
 
@@ -16640,6 +16873,7 @@ bool Player::LoadFromDB(ObjectGuid guid, SqlQueryHolder *holder)
 
     // check if the character's account in the db and the logged in account match.
     // player should be able to load/delete character only with correct account!
+    // (Penqle's !GetBot() bypass removed — cmangos bots use synthetic sessions.)
     if (dbAccountId != GetSession()->GetAccountId())
     {
         sLog.outError("%s loading from wrong account (is: %u, should be: %u)",
@@ -16839,6 +17073,9 @@ bool Player::LoadFromDB(ObjectGuid guid, SqlQueryHolder *holder)
         }
     }
 
+    // Penqle stub's BeforeAddToMap bot hook removed; cmangos's bot init is
+    // handled inside the bot module's BotFactory.
+
     // player bounded instance saves loaded in _LoadBoundInstances, group versions at group loading
     DungeonPersistentState* state = GetBoundInstanceSaveForSelfOrGroup(GetMapId());
 
@@ -16988,6 +17225,7 @@ bool Player::LoadFromDB(ObjectGuid guid, SqlQueryHolder *holder)
 
     // after spell load, learn rewarded spell if need also
     _LoadQuestStatus(holder->GetResult(PLAYER_LOGIN_QUERY_LOADQUESTSTATUS));
+    _LoadWeeklyQuestLedger(holder->GetResult(PLAYER_LOGIN_QUERY_LOADWEEKLYQUESTS));
 
     // must be before inventory (some items required reputation check)
     m_reputationMgr.LoadFromDB(holder->GetResult(PLAYER_LOGIN_QUERY_LOADREPUTATION));
@@ -17840,6 +18078,42 @@ void Player::_LoadQuestStatus(QueryResult *result)
         SetQuestSlot(i, 0);
 }
 
+void Player::_LoadWeeklyQuestLedger(QueryResult* result)
+{
+    m_weeklyQuestPeriods.clear();
+
+    if (!result)
+        return;
+
+    do
+    {
+        Field* fields = result->Fetch();
+        const uint32 questId = fields[0].GetUInt32();
+        if (Quest const* quest = sObjectMgr.GetQuestTemplate(questId))
+        {
+            if (quest->IsWeekly())
+                m_weeklyQuestPeriods[questId] = fields[1].GetUInt64();
+        }
+        else
+            sLog.outError("Character %u has weekly ledger entry for missing quest %u.", GetGUIDLow(), questId);
+    }
+    while (result->NextRow());
+}
+
+bool Player::IsWeeklyQuestEligible(Quest const* pQuest) const
+{
+    if (!pQuest || !pQuest->IsWeekly())
+        return true;
+
+    const uint64 currentPeriod = WeeklyQuestLedger::GetCurrentPeriod(sWorld.GetGameTime());
+    if (!currentPeriod)
+        return false;
+
+    auto itr = m_weeklyQuestPeriods.find(pQuest->GetQuestId());
+    return itr == m_weeklyQuestPeriods.end() ||
+           itr->second != currentPeriod;
+}
+
 void Player::_LoadSpells(QueryResult *result)
 {
     //QueryResult *result = CharacterDatabase.PQuery("SELECT spell,active,disabled FROM character_spell WHERE guid = '%u'",GetGUIDLow());
@@ -17856,6 +18130,8 @@ void Player::_LoadSpells(QueryResult *result)
         }
         while (result->NextRow());
     }
+
+    UpdateCombinedGatheringTrackingSpell();
 }
 
 void Player::_LoadPlayerVariables(QueryResult* result)
@@ -18250,6 +18526,8 @@ bool Player::SaveToDB(bool online, bool force, bool direct)
     // delay auto save at any saves (manual, in code, or autosave)
     m_nextSave = sWorld.getConfig(CONFIG_UINT32_INTERVAL_SAVE);
 
+    // Penqle stub's "skip save for bots" guard removed — cmangos's bot
+    // factory persists bot characters as normal Player rows; no save skip needed.
     if (m_DbSaveDisabled)
         return false;
 
@@ -18424,12 +18702,18 @@ bool Player::SaveToDB(bool online, bool force, bool direct)
     if (direct)
     {
         if (!uberInsert.DirectExecute())
+        {
+            CharacterDatabase.RollbackTransaction();
             return false;
+        }
     }
     else
     {
         if (!uberInsert.Execute())
+        {
+            CharacterDatabase.RollbackTransaction();
             return false;
+        }
     }
 
     _SaveBGData();
@@ -19264,6 +19548,88 @@ void Player::TextEmote(std::string const& text) const
         SendMessageToSetInRange(&data, sWorld.getConfig(CONFIG_FLOAT_LISTEN_RANGE_TEXTEMOTE), true, !sWorld.getConfig(CONFIG_BOOL_ALLOW_TWO_SIDE_INTERACTION_CHAT));
 }
 
+// bot calls bot->Whisper(text, lang, target_guid).
+// Build a CHAT_MSG_WHISPER packet from this player and send to receiver's session.
+void Player::Whisper(const std::string& text, uint32 language, ObjectGuid receiver)
+{
+    Player* rPlayer = sObjectMgr.GetPlayer(receiver);
+    if (!rPlayer || !rPlayer->GetSession())
+        return;
+    WorldPacket data;
+    ChatHandler::BuildChatPacket(data, CHAT_MSG_WHISPER, text.c_str(), Language(language), GetChatTag(), GetObjectGuid(), GetName());
+    rPlayer->GetSession()->SendPacket(&data);
+}
+
+// GetItemByEntry: linear search across inventory + equipment for first item matching entry.
+Item* Player::GetItemByEntry(uint32 itemEntry) const
+{
+    Item* found = nullptr;
+    std::function<void(Item*)> finder = [&found, itemEntry](Item* item)
+    {
+        if (!found && item && item->GetEntry() == itemEntry)
+            found = item;
+    };
+    const_cast<Player*>(this)->ApplyForAllItems(finder, false);
+    return found;
+}
+
+// GetMailBegin/End: forward to MasterPlayer's mail queue.
+std::deque<Mail*>::iterator Player::GetMailBegin()
+{
+    static std::deque<Mail*> s_emptyMail;
+    if (!GetSession()) return s_emptyMail.end();
+    MasterPlayer* mp = GetSession()->GetMasterPlayer();
+    if (!mp) return s_emptyMail.end();
+    return mp->GetMailBegin();
+}
+
+std::deque<Mail*>::iterator Player::GetMailEnd()
+{
+    static std::deque<Mail*> s_emptyMail;
+    if (!GetSession()) return s_emptyMail.end();
+    MasterPlayer* mp = GetSession()->GetMasterPlayer();
+    if (!mp) return s_emptyMail.end();
+    return mp->GetMailEnd();
+}
+
+Item* Player::GetMItem(uint32 id)
+{
+    if (!GetSession()) return nullptr;
+    MasterPlayer* mp = GetSession()->GetMasterPlayer();
+    return mp ? mp->GetMItem(id) : nullptr;
+}
+
+void Player::RemoveMail(uint32 id)
+{
+    if (!GetSession()) return;
+    MasterPlayer* mp = GetSession()->GetMasterPlayer();
+    if (mp) mp->RemoveMail(id);
+}
+
+Player* Player::GetMaster() const
+{
+    if (Group* g = const_cast<Player*>(this)->GetGroup())
+        return sObjectMgr.GetPlayer(g->GetLeaderGuid());
+    return nullptr;
+}
+
+// Player::Create/Remove Playerbot{AI,Mgr} and Player::UpdatePlayerbotHooks
+// — host hooks for bot lifecycle. Real implementations live in the
+// playerbots module (src/modules/PlayerBots/playerbot/HostHooks.cpp, where
+// PlayerbotAI is fully defined); stub implementations for BUILD_PLAYERBOTS=OFF
+// live in src/game/PlayerbotStubs.cpp.
+
+uint32 Player::GetMailSize()
+{
+    if (auto* s = GetSession()) if (auto* m = s->GetMasterPlayer()) return m->GetMailSize();
+    return 0;
+}
+
+void Player::RemoveMItem(uint32 id)
+{
+    if (auto* s = GetSession()) if (auto* m = s->GetMasterPlayer()) m->RemoveMItem(id);
+}
+
 void Player::PetSpellInitialize()
 {
     Pet* pet = GetPet();
@@ -19653,7 +20019,7 @@ unsigned int Player::GetShapeshiftDisplay(ShapeshiftForm form)
 {
     uint32 display_id = 0;
 
-    std::array<std::tuple<ShapeshiftForm, uint32, uint32, uint32, uint32, uint32>, 17> glyph_map =
+    std::array<std::tuple<ShapeshiftForm, uint32, uint32, uint32, uint32, uint32>, 18> glyph_map =
     { {
        // Move it to DB if more glyphs!
        // spell id, alliance display, horde display, default_alliance, defaut_horde 
@@ -19668,6 +20034,7 @@ unsigned int Player::GetShapeshiftDisplay(ShapeshiftForm form)
         { FORM_DIREBEAR,  53011, 20405, 20406, 2281,  2289 },  // Glyph of the Emerald Bear
         { FORM_MOONKIN,   53014, 20408, 20409, 15374, 15375 }, // Glyph of the Dreamkin
         { FORM_CAT,       53017, 20410, 20410, 892,   8571 },  // Glyph of the Panther
+        { FORM_CAT,       44085, 4435,  4435,  892,   8571 },  // Embrace of the Viper, six pieces
         { FORM_TRAVEL,    36521, 20611, 20611, 632,   632  },  // Glyph of the White Stag
         { FORM_NEW_TREE,  57571, 18031, 18031, 2451,  864  },  // Glyph of the Arcane Treant
         { FORM_NEW_TREE,  50923, 18030, 18030, 2451,  864  },  // Glyph of the Autumn Treant
@@ -20115,6 +20482,30 @@ void Player::CleanupFlagsOnTaxiPathFinished()
 
     Unmount();
     RemoveFlag(UNIT_FIELD_FLAGS, UNIT_FLAG_DISABLE_MOVE | UNIT_FLAG_TAXI_FLIGHT);
+}
+
+void Player::OnTaxiFlightEject(bool /*force*/)
+{
+    if (!IsTaxiFlying())
+        return;
+
+    // Order matters here. FlightPathMovementGenerator::Finalize calls
+    // TaxiStepFinished(), which starts the *next* leg whenever the itinerary still
+    // holds one - emptying it first is what turns "carry on" into "get off". The same
+    // clear is also what lets Finalize run the full landing cleanup, since it only
+    // stops movement, puts hostile references back online and settles PvP once
+    // GetTaxi() is empty.
+    m_taxi.ClearTaxiDestinations();
+
+    // ClearType finalises the flight generator wherever it sits on the stack rather
+    // than assuming it is on top, and Finalize then does
+    // CleanupFlagsOnTaxiPathFinished for us.
+    GetMotionMaster()->ClearType(FLIGHT_MOTION_TYPE);
+
+    // If the flight state outlived that, there was no flight generator to finalise.
+    // Clear the flags by hand rather than leave anyone marked as flying for good.
+    if (IsTaxiFlying())
+        CleanupFlagsOnTaxiPathFinished();
 }
 
 UnitMountResult Player::Mount(uint32 mount, uint32 spellId)
@@ -21247,6 +21638,8 @@ void Player::LearnDefaultSpells()
     {
         LearnGameMasterSpells(); // Add some GM-Spells to new created toons
     }
+
+    UpdateCombinedGatheringTrackingSpell();
 }
 
 void Player::LearnQuestRewardedSpells(Quest const* quest)
@@ -21554,9 +21947,9 @@ bool Player::IsSpellFitByClassAndRace(uint32 spell_id, uint32* pReqlevel /*= nul
             continue;
 
         SkillRaceClassInfoMapBounds bounds = sSpellMgr.GetSkillRaceClassInfoMapBounds(abilityEntry->skillId);
-        for (SkillRaceClassInfoValueMap::const_iterator itr = bounds.first; itr != bounds.second; ++itr)
+        for (SkillRaceClassInfoMap::const_iterator itr = bounds.first; itr != bounds.second; ++itr)
         {
-            SkillRaceClassInfoEntry const* skillRCEntry = &itr->second;
+            SkillRaceClassInfoEntry const* skillRCEntry = itr->second;
             if ((skillRCEntry->raceMask & racemask) && (skillRCEntry->classMask & classmask))
             {
                 if (skillRCEntry->flags & ABILITY_SKILL_NONTRAINABLE)
@@ -21933,6 +22326,13 @@ uint32 Player::GetResurrectionSpellId() const
 // Used in triggers for check "Only to targets that grant experience or honor" req
 bool Player::IsHonorOrXPTarget(Unit* pVictim) const
 {
+    // A kill proc can fire with no victim pointer at all - see the
+    // PROC_FLAG_KILL branch in Unit::IsTriggeredAtSpellProcEvent, which passed
+    // it straight through and crashed the server on GetLevel(). No victim means
+    // nothing to award honour or experience for, so the answer is simply no.
+    if (!pVictim)
+        return false;
+
     uint32 v_level = pVictim->GetLevel();
     uint32 k_grey  = MaNGOS::XP::GetGrayLevel(GetLevel());
 
@@ -22577,7 +22977,7 @@ void Player::_LoadSkills(QueryResult *result)
                 continue;
             }
 
-            SkillRaceClassInfoEntry const* rcEntry = sSpellMgr.GetSkillRaceClassInfo(skill, GetRace(), GetClass());
+            SkillRaceClassInfoEntry const* rcEntry = GetSkillRaceClassInfo(skill, GetRace(), GetClass());
             if (!rcEntry)
             {
                 sLog.outError("Character %u has forbidden skill %u for his race / class combination.", GetGUIDLow(), skill);
@@ -23986,6 +24386,39 @@ void Player::SendDestroyGroupMembers(bool includingSelf)
     }
 }
 
+void Player::RefreshVisiblePlayersForClient()
+{
+    // Collect the players (incl. bots) the client currently has, then destroy them on the client
+    // and forget them, so the next visibility sweep re-sends a fresh create block. Called once after
+    // the login cinematic, by which point the item-query responses for their gear have been answered
+    // and cached client-side, so the recreated models render with full equipment instead of naked.
+    // See RefreshVisiblePlayersEvent in CharacterHandler.cpp for the full cause/fix explanation.
+    std::vector<ObjectGuid> players;
+    {
+        std::shared_lock<std::shared_mutex> lock(m_visibleGUIDs_lock);
+        for (const ObjectGuid& guid : m_visibleGUIDs)
+            if (guid.IsPlayer() && guid != GetObjectGuid())
+                players.push_back(guid);
+    }
+
+    if (players.empty())
+        return;
+
+    for (const ObjectGuid& guid : players)
+    {
+        WorldPacket data(SMSG_DESTROY_OBJECT, 8);
+        data << guid;
+        GetSession()->SendPacket(&data);
+
+        std::unique_lock<std::shared_mutex> lock(m_visibleGUIDs_lock);
+        m_visibleGUIDs.erase(guid);
+    }
+
+    // Re-run visibility now so in-range targets are immediately re-created (otherwise they would
+    // stay gone until the player next moves).
+    GetCamera().UpdateVisibilityForOwner();
+}
+
 void Player::RefreshBitsForVisibleUnits(UpdateMask* mask, uint32 objectTypeMask)
 {
     UpdateData data;
@@ -24375,7 +24808,17 @@ void Player::HandleStealthedUnitsDetection()
                     if (i_player->m_broadcaster)
                         i_player->m_broadcaster->AddListener(this);
 
-                m_visibleGUIDs.insert(stealthedUnit->GetObjectGuid());
+                // LOCKED. Every other writer of m_visibleGUIDs takes the
+                // unique_lock; these two in the stealth sweep did not, and a
+                // reader on another thread holding the shared_lock then died
+                // inside _Hashtable::find - four times on 2026-08-29, always
+                // from Group::UpdatePlayerOutOfRange. A reader's lock is worth
+                // nothing while a writer ignores it. Narrow on purpose: the
+                // send below must not run under a write lock.
+                {
+                    std::unique_lock<std::shared_mutex> lock(m_visibleGUIDs_lock);
+                    m_visibleGUIDs.insert(stealthedUnit->GetObjectGuid());
+                }
                 stealthedUnit->SendCreateUpdateToPlayer(this);
             }
         }
@@ -24389,7 +24832,10 @@ void Player::HandleStealthedUnitsDetection()
                     if (i_player->m_broadcaster)
                         i_player->m_broadcaster->RemoveListener(this);
 
-                m_visibleGUIDs.erase(stealthedUnit->GetObjectGuid());
+                {
+                    std::unique_lock<std::shared_mutex> lock(m_visibleGUIDs_lock);
+                    m_visibleGUIDs.erase(stealthedUnit->GetObjectGuid());
+                }
             }
         }
     }
@@ -24534,16 +24980,6 @@ void Player::MailBoaringModeRewards(uint32 level)
         .SendMailTo(this, MailSender(MAIL_CREATURE, uint32(16547), MAIL_STATIONERY_DEFAULT), MAIL_CHECK_MASK_COPIED, 0, 30 * DAY);
 }
 
-void Player::MailBrewmasterModeRewards()
-{
-    Item* reward = Item::CreateItem(GetTeam() == ALLIANCE ? 81234 : 80455, 1, this);
-    reward->SaveToDB();
-
-    MailDraft("Master of the Brew", "Congratulations on reaching level 60 while walking the Path of the Brewmaster! Accept this Brewfest mount as a reward for your spirited journey.")
-        .AddItem(reward)
-        .SendMailTo(this, MailSender(MAIL_CREATURE, uint32(16547), MAIL_STATIONERY_DEFAULT), MAIL_CHECK_MASK_COPIED, 0, 30 * DAY);
-}
-
 bool Player::IsCityProtector() { return HasTitle(GetRace()); /*GetByteValue(PLAYER_BYTES_3, 2) == GetRace();*/ }
 bool Player::IsImmortal() { return GetByteValue(PLAYER_BYTES_3, 2) == 52; }
 bool Player::IsScarabLord() { return HasItemCount(21176, 1, 0); }
@@ -24635,9 +25071,100 @@ void Player::SetFlying(bool flying)
 
 void Player::AddToArenaQueue(bool queuedAsGroup)
 {
-    // Gossip scripts run on map workers. BattleGroundQueue state is owned by
-    // the world thread, so only enqueue the value-only arena join request here.
-    sBattleGroundMgr.ScheduleArenaQueueJoin(GetObjectGuid(), queuedAsGroup);
+    if (!IsInWorld() || !IsAlive())
+        return;
+
+    // only max level
+    if (GetLevel() < sWorld.getConfig(CONFIG_UINT32_MAX_PLAYER_LEVEL))
+        return;
+
+    /* // check if in other queues
+    if (InBattleGroundQueue())
+    {
+        GetSession()->SendNotification("Unable to queue while currently in another queue.");
+        return;
+    } */
+
+    // is deserter?
+    if (!CanJoinToBattleground())
+    {
+        GetSession()->SendNotification("Unable to queue while you are marked as Deserter");
+        return;
+    }
+
+    // check existence
+    BattleGround* bg = nullptr;
+    if (!(bg = sBattleGroundMgr.GetBattleGroundTemplate(BATTLEGROUND_BR)))
+    {
+        sLog.outError("Battleground: template BG (all arenas) not found");
+        return;
+    }
+
+    BattleGroundQueueTypeId bgQueueTypeId = sBattleGroundMgr.BGQueueTypeId(bg->GetTypeID());
+    BattleGroundTypeId bgTypeId = GetBattleGroundTypeIdByMapId(bg->GetMapId());
+    BattleGroundBracketId const bgBracketId = GetBattleGroundBracketIdFromLevel(bgTypeId);
+    uint32 arenaRating = 0;
+
+    // You can't queue as group
+    Group* grp = GetGroup();
+    if (grp)
+    {
+        uint32 err = grp->CanJoinArenaQueue(bgQueueTypeId, 3, 3, sObjectMgr.GetPlayer(grp->GetLeaderGuid()));
+        if (err == BG_JOIN_ERR_GROUP_DESERTER)
+        {
+            WorldPacket data;
+            sBattleGroundMgr.BuildGroupJoinedBattlegroundPacket(&data, BG_GROUPJOIN_DESERTERS);
+            GetSession()->SendPacket(&data);
+            GetSession()->SendBattleGroundJoinError(err);
+            return;
+        }
+        else if (err != BG_JOIN_ERR_OK)
+        {
+            GetSession()->SendBattleGroundJoinError(err);
+            return;
+        }
+    }
+
+    BattleGroundQueue& bgQueue = sBattleGroundMgr.m_BattleGroundQueues[bgQueueTypeId];
+    GroupQueueInfo * ginfo = bgQueue.AddGroup(this, grp ? grp : nullptr, bgTypeId, bgBracketId, false, 0, nullptr);
+    uint32 avgTime = bgQueue.GetAverageQueueWaitTime(ginfo, bgBracketId);
+    
+    if (grp && queuedAsGroup)
+    {
+        for (GroupReference *itr = grp->GetFirstMember(); itr != nullptr; itr = itr->next())
+        {
+            Player *member = itr->getSource();
+            if (!member)
+                continue;  // this should never happen
+
+            uint32 queueSlot = member->AddBattleGroundQueueId(bgQueueTypeId); // add to queue
+            member->SetBattleGroundEntryPoint(this, false); // store entry point coords
+
+            WorldPacket data;
+            // send status packet (in queue)
+            sBattleGroundMgr.BuildBattleGroundStatusPacket(&data, bg, queueSlot, STATUS_WAIT_QUEUE, avgTime, 0);
+            member->GetSession()->SendPacket(&data);
+
+            if (grp->GetMembersCount() > 1)
+            {
+                sBattleGroundMgr.BuildGroupJoinedBattlegroundPacket(&data, bg->GetMapId());
+                member->GetSession()->SendPacket(&data);
+            }
+        }
+    }
+    else // solo
+    {
+        // already checked if queueSlot is valid, now just get it
+        uint32 queueSlot = AddBattleGroundQueueId(bgQueueTypeId);
+
+        SetBattleGroundEntryPoint(this, false);
+
+        WorldPacket data;
+        sBattleGroundMgr.BuildBattleGroundStatusPacket(&data, bg, queueSlot, STATUS_WAIT_QUEUE, avgTime, 0);
+        GetSession()->SendPacket(&data);
+    }
+
+    sBattleGroundMgr.ScheduleQueueUpdate(bgQueueTypeId, bgTypeId, bgBracketId);
 }
 
 uint16 Player::GetPureMaxSkillValue(uint32 skill) const
@@ -25474,18 +26001,6 @@ bool Player::HasEarnedTitle(uint8 titleId)
     case TITLE_THE_WANDERER:
     {
         if (GetLevel() == PLAYER_MAX_LEVEL && HasChallenge(CHALLENGE_VAGRANT_MODE))
-            return true;
-        break;
-    }
-    case TITLE_CRAFTMASTER:
-    {
-        if (GetLevel() == PLAYER_MAX_LEVEL && HasChallenge(CHALLENGE_CRAFTMASTER))
-            return true;
-        break;
-    }
-    case TITLE_BREWMASTER:
-    {
-        if (GetLevel() == PLAYER_MAX_LEVEL && HasChallenge(CHALLENGE_BREWMASTER))
             return true;
         break;
     }

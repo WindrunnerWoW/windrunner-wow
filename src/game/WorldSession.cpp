@@ -43,6 +43,7 @@
 #include "SocialMgr.h"
 #include "ScriptObjects.h"
 
+// PlayerBotMgr.h include removed — Penqle stub binned for cmangos port.
 #include "Anticheat/Anticheat.h"
 #include "Anticheat/Movement/Movement.hpp"
 #include "Language.h"
@@ -81,10 +82,10 @@ bool MapSessionFilter::Process(WorldPacket * packet)
 }
 
 /// WorldSession constructor
-WorldSession::WorldSession(uint32 id, WorldSocket *sock, AccountTypes sec, time_t mute_time, LocaleConstant locale, const std::string& remote_ip, uint32 binaryIp, SessionTransport transport) :
+WorldSession::WorldSession(uint32 id, WorldSocket *sock, AccountTypes sec, time_t mute_time, LocaleConstant locale, const std::string& remote_ip, uint32 binaryIp) :
     m_muteTime(mute_time), m_connected(true), m_disconnectTimer(0), m_who_recvd(false),
     m_ah_list_recvd(false), _scheduleBanLevel(0), m_lastMailOpenTime(0),
-    _accountFlags(0), m_idleTime(WorldTimer::getMSTime()), _player(nullptr), m_Socket(sock), m_transport(transport), _security(sec), _accountId(id), _logoutTime(0), m_inQueue(false),
+    _accountFlags(0), m_idleTime(WorldTimer::getMSTime()), _player(nullptr), m_Socket(sock), _security(sec), _accountId(id), _logoutTime(0), m_inQueue(false),
     m_playerLoading(false), m_playerLogout(false), m_playerRecentlyLogout(false), m_playerSave(false), m_sessionDbcLocale(sWorld.GetAvailableDbcLocale(locale)),
     m_sessionDbLocaleIndex(sObjectMgr.GetIndexForLocale(locale)), m_latency(0), m_tutorialState(TUTORIALDATA_UNCHANGED), m_cheatData(nullptr),
     m_lastReceivedPacketTime(0), m_clientOS(CLIENT_OS_UNKNOWN), m_clientPlatform(CLIENT_PLATFORM_UNKNOWN), _gameBuild(0),
@@ -93,37 +94,34 @@ WorldSession::WorldSession(uint32 id, WorldSocket *sock, AccountTypes sec, time_
     _whisper_targets(id, sWorld.getConfig(CONFIG_UINT32_WHISPER_TARGETS_MAX), sWorld.getConfig(CONFIG_UINT32_WHISPER_TARGETS_BYPASS_LEVEL),
     sWorld.getConfig(CONFIG_UINT32_WHISPER_TARGETS_DECAY), this), sessionDbcLocaleRaw(locale)
 {
-    // A remote socket must never be routed through the trusted Headless path.
-    MANGOS_ASSERT(!sock || transport == SessionTransport::Network);
-
     if (sock)
     {
         m_Address = remote_ip;
         sock->AddReference();
     }
     else
-        m_Address = remote_ip;
+        m_Address = "<BOT>";
 
-    // Start every session with the null implementation; network auth swaps in
-    // the real one. Headless sessions retain the null implementation.
+    // Start every session with the null implementation so that m_antiCheat is
+    // never a null pointer. InitAntiCheatSession swaps in the real one during
+    // a network login; bot sessions never pass through WorldSocket and so had
+    // nothing at all. Several handlers dereference it without checking -
+    // HandleMoveKnockBackAck among them, which the playerbot module calls
+    // directly, so a knocked-back bot would take the server down.
     m_antiCheat = std::make_unique<NullSessionAnticheat>(this);
 
     m_lastUpdateTime = WorldTimer::getMSTime();
-    _analyser = std::make_unique<AccountAnalyser>(this);
-}
 
-void WorldSession::InitHeadlessSession()
-{
-    MANGOS_ASSERT(IsHeadless());
-    m_connected = true;
-    m_disconnectTimer = 0;
-    m_playerLoading = false;
-    m_headlessLoginRequested = false;
-    m_playerLogout = false;
-    m_playerSave = false;
-    m_loginRequestGuid.Clear();
-    m_loginRequestToken = 0;
-    m_clientMoverGuid.Clear();
+    _recvQueueMaxPackets = sWorld.getConfig(CONFIG_UINT32_NETWORK_SESSION_INBOUND_QUEUE_MAX_PACKETS);
+    _recvQueueMaxBytes = sWorld.getConfig(CONFIG_UINT32_NETWORK_SESSION_INBOUND_QUEUE_MAX_BYTES);
+    // Keep the safety boundary enabled if a session is created before config
+    // loading has completed (or an old config omits these values).
+    if (_recvQueueMaxPackets == 0)
+        _recvQueueMaxPackets = 512;
+    if (_recvQueueMaxBytes == 0)
+        _recvQueueMaxBytes = 4 * 1024 * 1024;
+
+    _analyser = std::make_unique<AccountAnalyser>(this);
 }
 
 /// WorldSession destructor
@@ -151,10 +149,15 @@ WorldSession::~WorldSession()
     }
 
     ///- empty incoming packet queue
-    WorldPacket* packet = nullptr;
-    for (auto& i : _recvQueue)
-        while (i.next(packet))
+    std::lock_guard<std::mutex> lock(_recvQueueLock);
+    for (auto& queue : _recvQueue)
+    {
+        for (WorldPacket* packet : queue)
             delete packet;
+        queue.clear();
+    }
+    _recvQueuePacketCount = 0;
+    _recvQueueBytes = 0;
 
     delete m_cheatData;
 }
@@ -245,6 +248,12 @@ void WorldSession::SendPacket(WorldPacket const* packet)
     }
 #endif
 
+    // outgoing-packet interceptor for bots.
+    // cmangos's WorldSession::SendPacket calls the bot AI's HandleBotOutgoingPacket here so
+    // the AI can react to server-originated events: group invites (auto-accept), vendor errors,
+    // BG queue status, resurrect requests, etc. Real-player sessions have m_playerbotAI=null
+    // so this is a no-op for them; bot sessions have null m_Socket AND m_playerbotAI set, so
+
 	if (m_Socket == nullptr)
         return;
 
@@ -291,9 +300,19 @@ uint32 GetChatPacketProcessingType(ChatPacketHeader* header)
     return PACKET_PROCESS_WORLD;
 }
 
+/// Bot-side convenience overload: copy a (potentially stack-allocated) inline
+/// WorldPacket onto the heap so QueuePacket(WorldPacket*) can take ownership.
+void WorldSession::QueuePacket(WorldPacket const& new_packet)
+{
+    QueuePacket(new WorldPacket(new_packet));
+}
+
 /// Add an incoming packet to the queue
 void WorldSession::QueuePacket(WorldPacket* newPacket)
 {
+    if (!newPacket)
+        return;
+
     uint32 processing;
 
     // Handle chat packets on async thread when possible
@@ -315,8 +334,69 @@ void WorldSession::QueuePacket(WorldPacket* newPacket)
         }
     }
 
-    m_lastReceivedPacketTime = newPacket->GetPacketTime();
-    _recvQueue[processing].add(newPacket);
+    if (!EnqueueIncomingPacket(PacketProcessing(processing), newPacket))
+        delete newPacket;
+}
+
+bool WorldSession::EnqueueIncomingPacket(PacketProcessing type, WorldPacket* packet)
+{
+    ASSERT(type < PACKET_PROCESS_MAX_TYPE);
+    ASSERT(packet);
+
+    bool overflowed = false;
+    uint32 queuedPackets = 0;
+    uint32 queuedBytes = 0;
+    {
+        std::lock_guard<std::mutex> lock(_recvQueueLock);
+        const uint32 packetBytes = packet->size();
+        if (_recvQueueOverflowed.load(std::memory_order_relaxed) ||
+            _recvQueuePacketCount >= _recvQueueMaxPackets ||
+            packetBytes > _recvQueueMaxBytes ||
+            _recvQueueBytes > _recvQueueMaxBytes - packetBytes)
+        {
+            overflowed = true;
+            queuedPackets = _recvQueuePacketCount;
+            queuedBytes = _recvQueueBytes;
+        }
+        else
+        {
+            _recvQueue[type].push_back(packet);
+            ++_recvQueuePacketCount;
+            _recvQueueBytes += packetBytes;
+            m_lastReceivedPacketTime = packet->GetPacketTime();
+        }
+    }
+
+    if (overflowed)
+    {
+        if (!_recvQueueOverflowed.exchange(true, std::memory_order_release))
+        {
+            DETAIL_LOG("Disconnecting session [account id %u / address %s]: inbound packet queue limit exceeded (%u packets, " SIZEFMTD " bytes)",
+                       GetAccountId(), GetRemoteAddress().c_str(), queuedPackets, static_cast<size_t>(queuedBytes));
+        }
+        return false;
+    }
+
+    return true;
+}
+
+bool WorldSession::PopIncomingPacket(PacketProcessing type, WorldPacket*& packet, PacketFilter& updater)
+{
+    ASSERT(type < PACKET_PROCESS_MAX_TYPE);
+
+    std::lock_guard<std::mutex> lock(_recvQueueLock);
+    std::deque<WorldPacket*>& queue = _recvQueue[type];
+    if (queue.empty())
+        return false;
+
+    packet = queue.front();
+    if (!updater.Process(packet))
+        return false;
+
+    queue.pop_front();
+    --_recvQueuePacketCount;
+    _recvQueueBytes -= packet->size();
+    return true;
 }
 
 /// Logging helper for unexpected opcodes
@@ -339,6 +419,10 @@ void WorldSession::LogUnprocessedTail(WorldPacket *packet)
 
 bool WorldSession::ForcePlayerLogoutDelay()
 {
+    // The bot-system gate (sPlayerBotMgr.ForceLogoutDelay()) was removed with the
+    // Penqle stub. The hardcore-protection delay logic below is non-bot-specific
+    // (it handles network-blip resilience) so we keep it active for any in-world
+    // player.
     if (!sWorld.IsStopped() && GetPlayer() && GetPlayer()->FindMap() && GetPlayer()->IsInWorld())
     {
         sLog.out(LOG_CHAR, "[%s:%u@%s] Lost socket for character:[%s] (guid: %u)", GetUsername().c_str(), GetAccountId(), GetRemoteAddress().c_str(), _player->GetName() , _player->GetGUIDLow());
@@ -358,21 +442,19 @@ bool WorldSession::ForcePlayerLogoutDelay()
 /// Update the WorldSession (triggered by World update)
 bool WorldSession::Update(PacketFilter& updater)
 {
+    if (_recvQueueOverflowed.load(std::memory_order_acquire) && m_Socket && !m_Socket->IsClosed())
+    {
+        DETAIL_LOG("Closing session [account id %u / address %s] after inbound packet queue overflow",
+                   GetAccountId(), GetRemoteAddress().c_str());
+        m_Socket->CloseSocket();
+    }
+
     uint32 sessionUpdateTime = WorldTimer::getMSTime();
     for (uint32 & i : _floodPacketsCount)
         i = 0;
 
     ///- Retrieve packets from the receive queue and call the appropriate handlers
     ProcessPackets(updater);
-
-    // No idle kick and no socket-loss disconnect; lifetime is registry-owned.
-    if (IsHeadless())
-    {
-        if (!_player && !m_playerLoading && m_headlessLoginRequested)
-            return false;
-        m_lastUpdateTime = WorldTimer::getMSTime();
-        return true;
-    }
 
     if(CharacterScreenIdleKick(sessionUpdateTime))
         return false;
@@ -403,6 +485,12 @@ bool WorldSession::Update(PacketFilter& updater)
     //logout procedure should happen only in World::UpdateSessions() method!!!
     if (updater.ProcessLogout())
     {
+        ScheduledLogout const scheduledLogout = m_scheduledPlayerLogout.exchange(ScheduledLogout::None, std::memory_order_acq_rel);
+        if (scheduledLogout != ScheduledLogout::None)
+            LogoutPlayer(scheduledLogout == ScheduledLogout::Save);
+
+        // Penqle stub's m_bot/PB_STATE_OFFLINE early-logout removed. cmangos
+        // adds its own logout handling for offline bots 
         if (_clientHashComputeStep == HASH_COMPUTED && GetPlayer())
             _clientHashComputeStep = HASH_NOTIFIED;
 
@@ -412,13 +500,10 @@ bool WorldSession::Update(PacketFilter& updater)
             m_Socket->RemoveReference();
             m_Socket = nullptr;
 
-            ///- Reset the online field in the account table if a network client disconnects
+            ///- Reset the online field in the account table if client is disconnected
             static SqlStatementID id;
-            if (!IsHeadless() && !sWorld.HasOtherSessionForAccount(GetAccountId(), this))
-            {
-                SqlStatement stmt = LoginDatabase.CreateStatement(id, "UPDATE account SET current_realm = ?, online = 0 WHERE id = ?");
-                stmt.PExecute(uint32(0), GetAccountId());
-            }
+            SqlStatement stmt = LoginDatabase.CreateStatement(id, "UPDATE account SET current_realm = ?, online = 0 WHERE id = ?");
+            stmt.PExecute(uint32(0), GetAccountId());
 
             // Character stays IG for 2 minutes
             return ForcePlayerLogoutDelay();
@@ -426,7 +511,9 @@ bool WorldSession::Update(PacketFilter& updater)
 
         ///- If necessary, log the player out
         time_t currTime = time(nullptr);
-        if (!m_Socket || (ShouldLogOut(currTime) && !m_playerLoading))
+        // Bot-driven forceConnection / m_bot guards removed (Penqle stub binned).
+        // cmangos's bot session handling re-introduces equivalent guards.
+        if ((!m_Socket || (ShouldLogOut(currTime) && !m_playerLoading)))
             LogoutPlayer(true);
 
         if (!m_Socket)
@@ -447,9 +534,9 @@ bool WorldSession::Update(PacketFilter& updater)
 
 bool WorldSession::CanProcessPackets() const
 {
-    // Headless sessions have no socket, but trusted native modules may enqueue
-    // synthetic client packets for the normal opcode handlers.
-    return IsHeadless() || (m_Socket && !m_Socket->IsClosed());
+    // sPlayerBotMgr.IsChatBot() clause removed — Penqle stub binned. cmangos's
+    // bot system uses isRealPlayer() guards in instead.
+    return (m_Socket && !m_Socket->IsClosed() && !_recvQueueOverflowed.load(std::memory_order_acquire));
 }
 
 void WorldSession::ProcessPackets(PacketFilter& updater)
@@ -464,19 +551,23 @@ void WorldSession::ProcessPackets(PacketFilter& updater)
     constexpr uint32 MaxPacketsPerUpdate = 200;
     uint32 totalPackets = 0;
 
-    while (CanProcessPackets() && _recvQueue[updater.PacketProcessType()].next(packet, updater))
+    while (CanProcessPackets() && PopIncomingPacket(updater.PacketProcessType(), packet, updater))
     {
         ++totalPackets;
 
         _receivedPacketType[updater.PacketProcessType()] = true;
         auto packetAllowed = AllowPacket(packet->GetOpcode(), timeNow);
         if (packetAllowed == PacketAllowResult::Denied)
+        {
+            delete packet;
+            packet = nullptr;
             break;
+        }
 
         if (packetAllowed == PacketAllowResult::Requeue)
         {
             requeuePackets.push_back(packet);
-            continue;
+            break;
         }
 
         OpcodeHandler const& opHandle = opcodeTable[packet->GetOpcode()];
@@ -506,7 +597,17 @@ void WorldSession::ProcessPackets(PacketFilter& updater)
                             LogUnexpectedOpcode(packet, "the player has not logged in yet");
                     }
                     else if (_player->IsInWorld())
+                    {
                         ExecuteOpcode(opHandle, packet);
+
+                        // Let modules observe the action now that the handler ran -
+                        // a master commanding puppets mirrors quest accepts, gossip
+                        // and quest shares to them from here.
+                        ScriptRegistry<ServerScript>::ForEachEnabledHook(SERVERHOOK_ON_PACKET_HANDLED, [&](ServerScript* script)
+                        {
+                            script->OnPacketHandled(this, *packet);
+                        });
+                    }
 
                     // lag can cause STATUS_LOGGEDIN opcodes to arrive after the player started a transfer
                     break;
@@ -596,7 +697,8 @@ void WorldSession::ProcessPackets(PacketFilter& updater)
 
     for (const auto& elem : requeuePackets)
     {
-        _recvQueue[updater.PacketProcessType()].add(elem);
+        if (!EnqueueIncomingPacket(updater.PacketProcessType(), elem))
+            delete elem;
     }
 }
 
@@ -604,9 +706,16 @@ void WorldSession::ProcessPackets(PacketFilter& updater)
 void WorldSession::ClearIncomingPacketsByType(PacketProcessing type)
 {
     ASSERT(type < PACKET_PROCESS_MAX_TYPE);
-    WorldPacket* data = nullptr;
-    while (_recvQueue[type].next(data))
+    std::lock_guard<std::mutex> lock(_recvQueueLock);
+    std::deque<WorldPacket*>& queue = _recvQueue[type];
+    while (!queue.empty())
+    {
+        WorldPacket* data = queue.front();
+        queue.pop_front();
+        _recvQueuePacketCount--;
+        _recvQueueBytes -= data->size();
         delete data;
+    }
 }
 
 void WorldSession::SetDisconnectedSession()
@@ -626,6 +735,11 @@ bool WorldSession::UpdateDisconnected(uint32 diff)
     return true;
 }
 
+void WorldSession::SchedulePlayerLogout(bool Save)
+{
+    m_scheduledPlayerLogout.store(Save ? ScheduledLogout::Save : ScheduledLogout::NoSave, std::memory_order_release);
+}
+
 /// %Log the player out
 void WorldSession::LogoutPlayer(bool Save)
 {
@@ -638,6 +752,8 @@ void WorldSession::LogoutPlayer(bool Save)
     m_playerSave = Save;
     bool doBanPlayer = false;
     bool disabledSocials = false;
+
+    // Module teardown happens from PlayerScript::OnBeforeLogout just below.
 
     if (_player)
     {
@@ -738,16 +854,13 @@ void WorldSession::LogoutPlayer(bool Save)
 
         sBattleGroundMgr.PlayerLoggedOut(_player);
 
-        ///- Reset the online field in the account table for network sessions.
-        // Headless character sessions never own LoginDatabase account state.
-        // No point resetting online in character table here as Player::SaveToDB() will set it to 1 since player has not been removed from world at this stage.
+        ///- Reset the online field in the account table
+        // no point resetting online in character table here as Player::SaveToDB() will set it to 1 since player has not been removed from world at this stage
         // No SQL injection as AccountID is uint32
-        if (!IsHeadless() && !sWorld.HasOtherSessionForAccount(GetAccountId(), this))
-        {
-            static SqlStatementID id;
-            SqlStatement stmt = LoginDatabase.CreateStatement(id, "UPDATE account SET current_realm = ?, online = 0 WHERE id = ?");
-            stmt.PExecute(uint32(0), GetAccountId());
-        }
+        static SqlStatementID id;
+
+        SqlStatement stmt = LoginDatabase.CreateStatement(id, "UPDATE account SET current_realm = ?, online = 0 WHERE id = ?");
+        stmt.PExecute(uint32(0), GetAccountId());
 
         ///- If the player is in a guild, update the guild roster and broadcast a logout message to other guild members
         if (Guild* guild = sGuildMgr.GetGuildById(_player->GetGuildId()))
@@ -798,8 +911,35 @@ void WorldSession::LogoutPlayer(bool Save)
 
         // remove player from the group if he is:
         // a) in group; b) not in raid group; c) logging out normally (not being kicked or disconnected)
+        //
+        // For normal logout (m_Socket set): also evict any bot members first so
+        // they don't linger in a real-player-less group after we leave.  We do
+        // this BEFORE removing the player so the bots are still in-world and
+        // their group pointers can be properly cleared.  Any bot that already
+        // logged out has a stale m_memberSlots entry; RemoveFromGroup on a null
+        // player is safe and still purges the DB row + slot.
         if (_player->GetGroup() && !_player->GetGroup()->isRaidGroup() && m_Socket)
-            _player->RemoveFromGroup();
+        {
+            Group* grp = _player->GetGroup();
+            std::vector<ObjectGuid> botGuids;
+            for (const auto& slot : grp->GetMemberSlots())
+            {
+                if (slot.guid == _player->GetObjectGuid())
+                    continue;
+                Player* member = sObjectMgr.GetPlayer(slot.guid);
+                if (!member || Script_IsMachineDriven(member))
+                    botGuids.push_back(slot.guid);
+            }
+            for (const ObjectGuid& guid : botGuids)
+            {
+                if (!_player->GetGroup())
+                    break; // group was disbanded mid-loop
+                Player::RemoveFromGroup(_player->GetGroup(), guid);
+            }
+            // Remove the player last (may trigger auto-disband if only 1 left).
+            if (_player->GetGroup())
+                _player->RemoveFromGroup();
+        }
 
         ///- Send update to group
         if (Group* group = _player->GetGroup())
@@ -884,6 +1024,15 @@ void WorldSession::KickPlayer()
 }
 
 /// Cancel channeling handler
+
+// bot calls session->SendPlaySpellVisual(guid, kit).
+void WorldSession::SendPlaySpellVisual(ObjectGuid guid, uint32 spellArtKit)
+{
+    WorldPacket data(SMSG_PLAY_SPELL_VISUAL, 8 + 4);
+    data << guid;
+    data << uint32(spellArtKit);
+    SendPacket(&data);
+}
 
 void WorldSession::SendAreaTriggerMessage(const char* Text, ...)
 {
@@ -1154,8 +1303,23 @@ void WorldSession::ProcessAnticheatAction(const char* detector, const char* reas
 
 WorldSession::PacketAllowResult WorldSession::AllowPacket(uint16 opcode, uint64 time)
 {
-    // Do not count packets that are often spamed by the client when loading a zone for example.
+    auto allowBurst = [this, opcode, time](uint32 burst, uint32 window) -> PacketAllowResult
+    {
+        std::pair<uint32, uint32>& state = m_requeuePacketCount[opcode];
+        if (time < state.first || time - state.first >= window)
+        {
+            state.first = static_cast<uint32>(time);
+            state.second = 0;
+        }
 
+        if (state.second < burst)
+        {
+            ++state.second;
+            return PacketAllowResult::Allowed;
+        }
+
+        return PacketAllowResult::Requeue;
+    };
 
     switch (opcode)
     {
@@ -1167,29 +1331,28 @@ WorldSession::PacketAllowResult WorldSession::AllowPacket(uint16 opcode, uint64 
         case CMSG_PET_NAME_QUERY:
         case CMSG_GUILD_QUERY:
         {
-            //If last packet was 4 seconds ago then just let it go through anyway
-            if (time - m_requeuePacketCount[opcode].first > 3)
-            {
-                m_requeuePacketCount[opcode].first = time;
-                m_requeuePacketCount[opcode].second = 0;
-                return PacketAllowResult::Allowed;
-            }
-
-            uint32& count = m_requeuePacketCount[opcode].second;
-            ++count;
-            if (count > 1000)
-            {
-                //sLog.outInfo("Account %u is over requeue limit for packet opcode %u. Count %u.", GetAccountId(), opcode, count);
-                return PacketAllowResult::Requeue;
-            }
-
-            return PacketAllowResult::Allowed;
+            // Keep the generous loading burst accepted by normal clients, but
+            // stop repeatedly popping and requeueing the same query once the
+            // burst is exhausted.
+            return allowBurst(1000, 4);
         }
 
-        case CMSG_JOIN_CHANNEL:         // Can be flooded by addons upon login
-        case CMSG_AUCTION_LIST_ITEMS:   // We already handle only one per session update
-        case CMSG_WHO:                  // We already handle only one per session update
-            return PacketAllowResult::Allowed;
+        case CMSG_JOIN_CHANNEL:         // Clients may join several channels during login.
+            return allowBurst(16, 10);
+
+        case CMSG_AUCTION_LIST_ITEMS:   // Only one auction query may be in flight.
+            if (ReceivedAHListRequest())
+                return PacketAllowResult::Requeue;
+            return allowBurst(2, 2);
+
+        case CMSG_WHO:                  // WHO is backed by an asynchronous global query.
+            if (ReceivedWhoRequest())
+                return PacketAllowResult::Requeue;
+            if (GetSecurity() == SEC_PLAYER && m_lastWhoRequest != 0 &&
+                time >= static_cast<uint64>(m_lastWhoRequest) && time - static_cast<uint64>(m_lastWhoRequest) < 30 &&
+                !(GetPlayer() && GetPlayer()->HasCustomFlag(CUSTOM_PLAYER_FLAG_BYPASS_WHO_COOLDOWN)))
+                return PacketAllowResult::Requeue;
+            return allowBurst(2, 30);
 
         default:
             break;

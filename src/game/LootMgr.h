@@ -103,6 +103,8 @@ class Player;
 class WorldObject;
 class LootStore;
 struct Loot;
+// bot has GroupLootRoll (cmangos type, defined in shim).
+class GroupLootRoll;
 
 struct LootStoreItem
 {
@@ -126,11 +128,17 @@ struct LootStoreItem
     bool AllowedForTeam(Loot const& loot) const;               // Checks item group compatibility
 };
 
+using QuestLootSharingPolicy = bool (*)(LootStoreItem const&);
+void RegisterQuestLootSharingPolicy(QuestLootSharingPolicy policy);
+
 typedef std::set<uint32> AllowedLooterSet;
 
+// bot uses lootItemType field. Stub default 0 = NORMAL.
+// LootItemType enum is defined in cmangos-compat-shim.h.
 struct LootItem
 {
-    uint32  itemid;
+    // bot uses itemId (cmangos camelCase); Penqle uses itemid.
+    union { uint32 itemid; uint32 itemId; };
     int32   randomPropertyId;
     uint16  conditionId       :16;                          // allow compiler pack structure
     uint8   count             : 8;
@@ -141,6 +149,20 @@ struct LootItem
     bool    is_counted        : 1;
     bool    needs_quest       : 1;                          // quest drop
     ObjectGuid lootOwner;           // Roll winner player guid, in case of full inventory
+    // bot reads lootItemType. Default 0 (NORMAL).
+    uint32 lootItemType = 0;
+    // bot reads isBlocked (cmangos camelCase) — alias for is_blocked.
+    bool isBlocked() const { return is_blocked; }
+    // bot reads freeForAll (cmangos camelCase). Penqle has freeforall (lowercase).
+    // Provide as a method to read the underlying bitfield (can't alias bitfields by reference).
+    bool freeForAll() const { return freeforall; }
+    // bot reads isReleased (cmangos has per-item released-by-owner concept).
+    // Penqle has no equivalent; stub returns false.
+    bool isReleased() const { return false; }
+    // 2-arg form of GetSlotTypeForSharedLoot (cmangos drops some args).
+    LootSlotType GetSlotTypeForSharedLoot(PermissionTypes permission, Player* viewer) const {
+        return GetSlotTypeForSharedLoot(permission, viewer, nullptr, false);
+    }
 
     // Constructor, copies most fields from LootStoreItem, generates random count and random suffixes/properties
     // Should be called for non-reference LootStoreItem entries only (mincountOrRef > 0)
@@ -277,14 +299,53 @@ struct Loot
     bool m_personal;
     LootItemList items;
     uint32 gold;
-    uint8 unlootedCount;
+    uint32 unlootedCount;
     ObjectGuid groupLeaderGuid;
     uint64 roundRobinPlayer;
     LootType loot_type;                                     // required for for proper item loot finish (store internal loot types in different from 3.x version, in fact this meaning that it send same loot types for interesting cases like 3.x version code, skip pre-3.x client loot type limitaitons)
 
     Loot(WorldObject const* lootTarget, uint32 _gold = 0) :
-        m_personal(false), gold(_gold), unlootedCount(0), roundRobinPlayer(0), loot_type(LOOT_CORPSE), m_lootTarget(lootTarget), m_groupTeam(TEAM_CROSSFACTION) { }
+        m_personal(false), gold(_gold), unlootedCount(0), roundRobinPlayer(0), loot_type(LOOT_CORPSE), m_lootTarget(lootTarget), m_groupTeam(TEAM_CROSSFACTION), m_bossBonusDropRolled(false) { }
     ~Loot() { clear(); }
+
+    // bot calls these accessors.
+    // Penqle exposes items vector directly; cmangos has named accessors.
+    LootItem* GetLootItemInSlot(uint32 slot) {
+        if (slot < items.size()) return &items[slot];
+        return nullptr;
+    }
+    // GroupLootRoll system: Penqle has none (loot rolls go through CGroupLoot or similar).
+    // Stub returns nullptr so callers fall through to single-player path.
+    // return cmangos's GroupLootRoll* (forward-decl below).
+    class GroupLootRoll* GetRollForSlot(uint32 /*slot*/) const { return nullptr; }
+    // GetGoldAmount: cmangos accessor.
+    uint32 GetGoldAmount() const { return gold; }
+    // CanLoot: true only if the player can actually take something from this loot — gold, or
+    // at least one unlooted item allowed for them. Was previously stubbed to always return
+    // true, which let bots try to loot corpses tapped/owned by another player (e.g. the human
+    // master's round-robin kill): the bot would kneel on an empty corpse and get stuck.
+    // LootItem::AllowedForPlayer already encodes round-robin / FFA / quest / condition rules.
+    bool CanLoot(Player* player) const
+    {
+        if (!player)
+            return false;
+        if (gold > 0)
+            return true;
+        for (LootItem const& item : items)
+        {
+            if (!item.is_looted && item.AllowedForPlayer(player, m_lootTarget))
+                return true;
+        }
+        return false;
+    }
+    // Release: cmangos clears loot reservation. Stub no-op.
+    void Release(Player* /*player*/) {}
+    // GetLootItemsListFor: cmangos returns/populates per-player loot items list.
+    // Two forms used by bot: returning ref or populating out-param.
+    LootItemList const& GetLootItemsListFor(Player* /*player*/) const { return items; }
+    void GetLootItemsListFor(Player* /*player*/, LootItemList& out) const {
+        for (auto const& it : items) out.push_back(it);
+    }
 
     // if loot becomes invalid this reference is used to inform the listener
     void addLootValidatorRef(LootValidatorRef* pLootValidatorRef)
@@ -323,6 +384,7 @@ struct Loot
         m_allowedLooters.clear();
         m_personal = true;
         m_groupTeam = TEAM_CROSSFACTION;
+        m_bossBonusDropRolled = false;
     }
 
     void leaveOnlyQuestItems()
@@ -344,6 +406,19 @@ struct Loot
 
     void GenerateMoneyLoot(uint32 minAmount, uint32 maxAmount);
     bool FillLoot(uint32 loot_id, LootStore const& store, Player* loot_owner, bool personal, bool noEmptyError = false, WorldObject const* looted = nullptr);
+
+    // Adds an FFA copy for each player without requiring ITEM_FLAG_PARTY_LOOT.
+    bool AddFFAItem(uint32 itemid, uint32 count, std::vector<Player*> const& players);
+
+    // OnCreatureKill is per credited player; this keeps the roll one-shot per corpse.
+    bool TryMarkBossBonusDropRolled()
+    {
+        if (m_bossBonusDropRolled)
+            return false;
+
+        m_bossBonusDropRolled = true;
+        return true;
+    }
 
     // Inserts the item into the loot (called by LootTemplate processors)
     void AddItem(LootStoreItem const & item);
@@ -383,6 +458,7 @@ struct Loot
         // What is looted
         WorldObject const* m_lootTarget;
         Team m_groupTeam;
+        bool m_bossBonusDropRolled;
 };
 
 struct LootView

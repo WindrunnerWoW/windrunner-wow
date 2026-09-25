@@ -8,6 +8,7 @@ namespace
 enum WarriorSpells
 {
     SPELL_WARRIOR_DEEP_WOUND                   = 12721,
+    SPELL_WARRIOR_SHIELD_SPECIALIZATION_RAGE   = 23602,
     SPELL_WARRIOR_DEEP_WOUNDS_R1               = 12162,
     SPELL_WARRIOR_DEEP_WOUNDS_R2               = 12850,
     SPELL_WARRIOR_DEEP_WOUNDS_R3               = 12868,

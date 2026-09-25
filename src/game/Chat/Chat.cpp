@@ -39,8 +39,15 @@
 #include "GameEventMgr.h"
 #include "HardcodedEvents.h"
 #include "ScriptObjects.h"
+#ifdef ENABLE_ELUNA
+#include "LuaEngine.h"
+#endif
 
 #include <vector>
+
+#if defined(_MSC_VER) || defined(_WIN32)
+#define strtok_r strtok_s
+#endif
 
 ChatCommand * ChatHandler::getCommandTable()
 {
@@ -998,6 +1005,14 @@ ChatCommand * ChatHandler::getCommandTable()
         { "cleaninventory", SEC_DEVELOPER,       false, &ChatHandler::HandleCleanInventoryCommand,      "", nullptr},
         { "showborders",    SEC_DEVELOPER,       false, &ChatHandler::HandleShowBordersCommand,         "", nullptr },
         { "queststatuses",  SEC_PLAYER,           false, &ChatHandler::HandleQuestStatusesCommand,       "", nullptr},
+        // Bot module commands. .rndbot is SEC_PLAYER so a single human can
+        // manage their own random-bot pool without keeping a GM alt logged in;
+        // a server operator who wants tighter control can raise it.
+        { "bot",            SEC_PLAYER,           false, &ChatHandler::HandlePlayerbotCommand,           "", nullptr },
+        { "rndbot",         SEC_PLAYER,          true,  &ChatHandler::HandleRandomPlayerbotCommand,     "", nullptr },
+        { "ahbot",          SEC_MODERATOR,       true,  &ChatHandler::HandleAhBotCommand,               "", nullptr },
+        { "dc",             SEC_PLAYER,          false, &ChatHandler::HandleDungeonClearCommand,        "", nullptr },
+        { "perfmon",        SEC_MODERATOR,       true,  &ChatHandler::HandlePerfMonCommand,             "", nullptr },
         { nullptr,          0,                   false, nullptr,                                        "", nullptr }
     };
 
@@ -1384,7 +1399,7 @@ void ChatHandler::CheckIntegrity(ChatCommand *table, ChatCommand *parentCommand)
 
         if (command->ChildCommands)
         {
-            if (command->Handler || command->ModuleHandler)
+            if (command->Handler)
             {
                 if (parentCommand)
                     sLog.outError("Subcommand '%s' of command '%s' have handler and subcommands in same time, must be used '' subcommand for handler instead.",
@@ -1399,7 +1414,7 @@ void ChatHandler::CheckIntegrity(ChatCommand *table, ChatCommand *parentCommand)
 
             CheckIntegrity(command->ChildCommands, command);
         }
-        else if (!command->Handler && !command->ModuleHandler)
+        else if (!command->Handler)
         {
             if (parentCommand)
                 sLog.outError("Subcommand '%s' of command '%s' not have handler and subcommands in same time. Must have some from its!",
@@ -1526,7 +1541,7 @@ ChatCommandSearchResult ChatHandler::FindCommand(ChatCommand* table, char const*
         }
 
         // must be have handler is explicitly selected
-        if (!table[i].Handler && !table[i].ModuleHandler)
+        if (!table[i].Handler)
             continue;
 
         // command found directly in to table
@@ -1660,10 +1675,7 @@ void ChatHandler::ExecuteCommand(const char* text)
                 }
             }
 
-            bool const handled = command->ModuleHandler
-                ? command->ModuleHandler(this, (char*)text)
-                : (this->*(command->Handler))((char*)text);   // text content destroyed at call
-            if (handled)
+            if ((this->*(command->Handler))((char*)text))   // text content destroyed at call
             {
                 if (m_session && command->Flags & COMMAND_FLAGS_CRITICAL)
                 {
@@ -1691,6 +1703,11 @@ void ChatHandler::ExecuteCommand(const char* text)
         }
         case CHAT_COMMAND_UNKNOWN_SUBCOMMAND:
         {
+#ifdef ENABLE_ELUNA
+            if (Eluna* e = sWorld.GetEluna())
+                if (!e->OnCommand(m_session ? m_session->GetPlayer() : nullptr, fullcmd.c_str()))
+                    return;
+#endif
             SendSysMessage(LANG_NO_SUBCMD);
             ShowHelpForCommand(command->ChildCommands, text);
             SetSentErrorMessage(true);
@@ -1698,6 +1715,11 @@ void ChatHandler::ExecuteCommand(const char* text)
         }
         case CHAT_COMMAND_UNKNOWN:
         {
+#ifdef ENABLE_ELUNA
+            if (Eluna* e = sWorld.GetEluna())
+                if (!e->OnCommand(m_session ? m_session->GetPlayer() : nullptr, fullcmd.c_str()))
+                    return;
+#endif
             SendSysMessage(LANG_NO_CMD);
             SetSentErrorMessage(true);
             break;
@@ -2585,9 +2607,16 @@ char* ChatHandler::ExtractLiteralArg(char** args, char const* lit /*= nullptr*/)
         return arg;
     }
 
-    char* name = strtok(head, " ");
+    // strtok_r, not strtok: strtok keeps its position in a static, process-wide
+    // pointer, so the second call below resumes wherever the LAST caller left
+    // off - on any thread. This function runs out of every bot's reaction
+    // engine (SpellIdValue -> extractSpellId), i.e. from several map threads at
+    // once, over short-lived std::strings. AddressSanitizer caught exactly
+    // that: strtok reading a buffer another thread had already freed.
+    char* saveptr = nullptr;
+    char* name = strtok_r(head, " ", &saveptr);
 
-    char* tail = strtok(nullptr, "");
+    char* tail = strtok_r(nullptr, "", &saveptr);
 
     *args = tail ? tail : (char*)"";                        // *args don't must be nullptr
 

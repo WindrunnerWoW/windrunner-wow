@@ -22,6 +22,7 @@ void AddSC_event_fireworks();
 void AddSC_elemental_invasions();
 
 // Items
+void AddSC_item_donation_mark();
 void AddSC_item_orb_of_draconic_energy();
 
 // HT
@@ -260,7 +261,6 @@ void AddSC_instance_zulfarrak();
 void AddSC_ashenvale();
 void AddSC_alahthalas();
 void AddSC_azshara();
-void AddSC_balor();
 void AddSC_darkshore();
 void AddSC_desolace();
 void AddSC_durotar();
@@ -382,8 +382,16 @@ void AddSC_turtle_spell_scripts();
 void AddSC_warlock_spell_scripts();
 void AddSC_warrior_spell_scripts();
 
+#ifdef ENABLE_ELUNA
+void AddElunaScripts();
+#endif
+
 void AddScripts()
 {
+#ifdef ENABLE_ELUNA
+    AddElunaScripts();
+#endif
+
     //Nostalrius
     AddSC_generic_spell_ai();
 
@@ -401,6 +409,7 @@ void AddScripts()
     AddSC_elemental_invasions();
 
     // Items
+    AddSC_item_donation_mark();
     AddSC_item_orb_of_draconic_energy();
 
     // HT
@@ -637,7 +646,6 @@ void AddScripts()
     AddSC_ashenvale();
     AddSC_alahthalas();
     AddSC_azshara();
-    AddSC_balor();
     AddSC_darkshore();
     AddSC_desolace();
     AddSC_durotar();
