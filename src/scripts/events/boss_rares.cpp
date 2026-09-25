@@ -114,8 +114,6 @@ struct boss_tarangosAI : public ScriptedAI
 
     void Aggro(Unit* pWho) override
     {
-        m_creature->SetInCombatWithZone();
-
         m_events.ScheduleEvent(EVENT_ICE_BREATH, Seconds(urand(15, 60)));
         m_events.ScheduleEvent(EVENT_REND, Seconds(urand(10, 45)));
     }
@@ -173,8 +171,6 @@ struct boss_blademaster_kargronAI : public ScriptedAI
 
     void Aggro(Unit* pWho) override
     {
-        m_creature->SetInCombatWithZone();
-
         m_events.ScheduleEvent(EVENT_THRASH, Seconds(urand(5, 30)));
     }
 
@@ -241,8 +237,6 @@ struct boss_mallon_the_moontouchedAI : public ScriptedAI
 
     void Aggro(Unit* pWho) override
     {
-        m_creature->SetInCombatWithZone();
-
         m_events.ScheduleEvent(EVENT_MOONFIRE_AOE, Seconds(15));
         m_events.ScheduleEvent(EVENT_WRATH, Seconds(urand(5, 20)));
     }
@@ -333,8 +327,6 @@ struct boss_grugthok_the_seerAI : public ScriptedAI
 
     void Aggro(Unit* pWho) override
     {
-        m_creature->SetInCombatWithZone();
-
         m_events.ScheduleEvent(EVENT_LIGHTNING_BOLT, Seconds(urand(2, 10)));
         m_events.ScheduleEvent(EVENT_LIGHTNING_SHIELD, Seconds(urand(10, 30)));
         m_events.ScheduleEvent(EVENT_HEALING_TOTEM, Seconds(urand(30, 60)));
@@ -400,8 +392,6 @@ struct boss_twilight_watcher_crendusAI : public ScriptedAI
 
     void Aggro(Unit* pWho) override
     {
-        m_creature->SetInCombatWithZone();
-
         m_events.ScheduleEvent(EVENT_BIG_FIREBALL, Seconds(urand(20, 40)));
         m_events.ScheduleEvent(EVENT_IMMOLATE, Seconds(urand(5, 25)));
         m_events.ScheduleEvent(EVENT_FIRE_NOVA, Seconds(urand(10, 15)));
@@ -469,8 +459,6 @@ struct boss_the_wandering_knightAI : public ScriptedAI
 
     void Aggro(Unit* pWho) override
     {
-        m_creature->SetInCombatWithZone();
-
         m_events.ScheduleEvent(EVENT_CLEAVE, Seconds(urand(10, 20)));
         m_events.ScheduleEvent(EVENT_SHIELD_BLOCK, Seconds(urand(5, 15)));
         m_events.ScheduleEvent(EVENT_SPELLSTONE, Seconds(urand(20, 45)));
@@ -546,7 +534,6 @@ struct boss_crusader_larsariusAI : public ScriptedAI
 
     void Aggro(Unit* pWho) override
     {
-        m_creature->SetInCombatWithZone();
         DoCast(m_creature, SPELL_DEVOTION_AURA, true);
 
         m_events.ScheduleEvent(EVENT_HOLY_STRIKE, Seconds(urand(8, 20)));
@@ -656,8 +643,6 @@ struct boss_kintozoAI : public ScriptedAI
 
     void Aggro(Unit* pWho) override
     {
-        m_creature->SetInCombatWithZone();
-
         m_events.ScheduleEvent(EVENT_RAGE, Seconds(urand(20, 45)));
         m_events.ScheduleEvent(EVENT_SUNDER_ARMOR, Seconds(urand(10, 20)));
     }
@@ -723,8 +708,6 @@ struct boss_zareth_terrorbladeAI : public ScriptedAI
 
     void Aggro(Unit* pWho) override
     {
-        m_creature->SetInCombatWithZone();
-
         m_creature->AddAura(SPELL_FIRE_SHIELD);
         m_events.ScheduleEvent(EVENT_EVASION, Seconds(urand(20, 45)));
         m_events.ScheduleEvent(EVENT_SLICE_AND_DICE, Seconds(urand(15, 30)));
@@ -806,8 +789,6 @@ struct boss_jalakarAI : public ScriptedAI
 
     void Aggro(Unit* pWho) override
     {
-        m_creature->SetInCombatWithZone();
-
         m_events.ScheduleEvent(EVENT_THUNDER_CLAP, Seconds(urand(5, 15)));
         m_events.ScheduleEvent(EVENT_KNOCKBACK, Seconds(urand(10, 20)));
         m_events.ScheduleEvent(EVENT_DEM_SHOUT, Seconds(urand(15, 35)));
@@ -884,8 +865,6 @@ struct boss_explorer_ashbeardAI : public ScriptedAI
 
     void Aggro(Unit* pWho) override
     {
-        m_creature->SetInCombatWithZone();
-
         m_events.ScheduleEvent(EVENT_DEM_SHOUT, Seconds(urand(15, 35)));
     }
 

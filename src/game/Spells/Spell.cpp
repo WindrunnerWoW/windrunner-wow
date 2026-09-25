@@ -36,6 +36,7 @@
 #include "ScriptMgr.h"
 #include "Player.h"
 #include "Pet.h"
+#include "Totem.h"
 #include "DynamicObject.h"
 #include "Group.h"
 #include "UpdateData.h"
@@ -1447,8 +1448,6 @@ void Spell::DoAllEffectOnTarget(TargetInfo *target)
         }
 
         int32 gain = pCaster->DealHeal(unitTarget, addhealth, m_spellInfo, crit);
-        if (m_spellScript)
-            m_spellScript->OnAfterHeal(this, unitTarget, addhealth, gain, crit);
 
         float classThreatModifier = pRealUnitCaster && pRealUnitCaster->GetClass() == CLASS_PALADIN ? 0.25f : 0.5f;
 
@@ -3767,6 +3766,15 @@ void Spell::cancel()
 
 void Spell::cast(bool skipCheck)
 {
+    // BotActionLog hook: cast start. Logged BEFORE the MAX_SPELL_ID guard
+    // so even rejected casts show up.
+    {
+        extern void BotActionLog_LogCastStart(WorldObject* caster, uint32 spellId, uint64 targetGuidRaw, uint32 castTimeMs);
+        ObjectGuid tgt = m_targets.getUnitTargetGuid();
+        if (!tgt) tgt = m_targets.getGOTargetGuid();
+        BotActionLog_LogCastStart(m_caster, m_spellInfo->Id, tgt.GetRawValue(), m_casttime);
+    }
+
     if (m_spellInfo->Id <= 0 || m_spellInfo->Id > MAX_SPELL_ID)
         return;
 
@@ -4444,6 +4452,7 @@ void Spell::HandleAddTargetTriggerAuras()
             // Calculate chance at that moment (can be depend for example from combo points)
             int32 auraBasePoints = targetTrigger->GetBasePoints();
             int32 chance = m_casterUnit->CalculateSpellDamage(target, auraSpellInfo, auraSpellIdx, &auraBasePoints);
+
             if ((m_casterUnit->IsPlayer() && m_casterUnit->ToPlayer()->HasOption(PLAYER_CHEAT_ALWAYS_PROC)) || roll_chance_i(chance))
                 m_casterUnit->CastSpell(target, triggerSpellInfo, true, nullptr, targetTrigger);
         }
@@ -4461,6 +4470,13 @@ void Spell::finish(bool ok)
         return;
 
     m_spellState = SPELL_STATE_FINISHED;
+
+    // BotActionLog hook: cast result. `ok` is true on success,
+    // false on cancel/interrupt/fail.
+    {
+        extern void BotActionLog_LogCastResult(WorldObject* caster, uint32 spellId, uint8 result, const char* phase);
+        BotActionLog_LogCastResult(m_caster, m_spellInfo->Id, ok ? 0 : 1, "finish");
+    }
 
     // Clear the creature's casting target so it faces victim
     if (m_setCreatureTarget)
@@ -4514,14 +4530,7 @@ void Spell::finish(bool ok)
             }
         }
         if (needDrop)
-        {
-            Player* player = (Player*)m_caster;
-            uint8 const comboPoints = player->GetComboPoints();
-            if (comboPoints && m_spellScript)
-                m_spellScript->OnComboPointsSpent(this, comboPoints);
-
-            player->ClearComboPoints();
-        }
+            ((Player*)m_caster)->ClearComboPoints();
     }
 
     // call triggered spell only at successful cast (after clear combo points -> for add some if need)
@@ -6092,8 +6101,10 @@ SpellCastResult Spell::CheckCast(bool strict)
                     return SPELL_FAILED_DONT_REPORT;
                 }
 
+                // Penqle's GetSession()->GetBot() guard removed (stub binned).
+                // cmangos's bot guard relies on isRealPlayer(); not needed here.
                 if (plrCaster->GetPetGuid() || plrCaster->GetCharmGuid() ||
-                   sCharacterDatabaseCache.GetCharacterPetByOwner(plrCaster->GetGUIDLow()))
+                    sCharacterDatabaseCache.GetCharacterPetByOwner(plrCaster->GetGUIDLow()))
                 {
                     plrCaster->SendPetTameFailure(PETTAME_ANOTHERSUMMONACTIVE);
                     return SPELL_FAILED_DONT_REPORT;

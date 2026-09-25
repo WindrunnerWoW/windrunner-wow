@@ -74,7 +74,7 @@ void TransportMgr::LoadTransportTemplates()
             continue;
         }
 
-        if (goInfo->moTransport.taxiPathId >= sTaxiPathNodesByPath.size())
+        if (goInfo->moTransport.taxiPathId >= sTaxiPathNodesByPath.size() || sTaxiPathNodesByPath[goInfo->moTransport.taxiPathId].empty())
         {
             sLog.outErrorDb("Transport %u (name: %s) has an invalid path specified in `gameobject_template`.`data0` (%u) field, skipped.", entry, goInfo->name.c_str(), goInfo->moTransport.taxiPathId);
             continue;

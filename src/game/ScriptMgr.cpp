@@ -493,22 +493,6 @@ void ScriptMgr::LoadScripts(ScriptMapMap& scripts, const char* tablename)
                 }
                 break;
             }
-            case SCRIPT_COMMAND_TAKE_MONEY:
-            {
-                if (!tmp.takeMoney.amount)
-                {
-                    sLog.outErrorDb("Table `%s` SCRIPT_COMMAND_TAKE_MONEY but amount is %u for script id %u",
-                                    tablename, tmp.takeMoney.amount, tmp.id);
-                    continue;
-                }
-                if (tmp.takeMoney.amount > 0x7FFFFFFF)
-                {
-                    sLog.outErrorDb("Table `%s` SCRIPT_COMMAND_TAKE_MONEY amount is too large (%u) for script id %u",
-                                    tablename, tmp.takeMoney.amount, tmp.id);
-                    continue;
-                }
-                break;
-            }
             case SCRIPT_COMMAND_DESPAWN_CREATURE:
             {
                 break;
@@ -1868,30 +1852,6 @@ AuraScript* ScriptMgr::GetAuraScript(SpellEntry const* pSpell)
     }
 
     return pTempScript->GetAuraScript(pSpell);
-}
-
-bool ScriptMgr::IsBotManaged(Player* who)
-{
-    bool managed = false;
-    ScriptRegistry<PlayerScript>::ForEachEnabledHook(PLAYERHOOK_IS_MANAGED_BOT,
-        [&](PlayerScript* script) { if (script->IsManagedBot(who)) managed = true; });
-    return managed;
-}
-
-uint8 ScriptMgr::GetBotRoles(Player* who)
-{
-    uint8 roles = 0;
-    ScriptRegistry<PlayerScript>::ForEachEnabledHook(PLAYERHOOK_GET_BOT_ROLES,
-        [&](PlayerScript* script) { roles = uint8(roles | script->GetBotRoles(who)); });
-    return roles;
-}
-
-bool ScriptMgr::OnAddonMessage(Player* from, std::string const& msg)
-{
-    bool consumed = false;
-    ScriptRegistry<PlayerScript>::ForEachEnabledHook(PLAYERHOOK_ON_ADDON_MESSAGE,
-        [&](PlayerScript* script) { if (!consumed && script->OnAddonMessage(from, msg)) consumed = true; });
-    return consumed;
 }
 
 bool ScriptMgr::OnGossipHello(Player* pPlayer, Creature* pCreature)
@@ -3275,4 +3235,68 @@ bool QuestInstance::GoToStage(uint32 newStage)
     }
     SetQuestStage(newStage);
     return true;
+}
+
+
+// --- module queries -------------------------------------------------------
+// Thin wrappers over the ScriptRegistry loops so call sites stay readable.
+// All of these sit on cold paths (group forming, looking-for-team, death and
+// release), so the loop costs nothing worth measuring.
+
+bool Script_IsAIControlled(Player const* player)
+{
+    if (!player)
+        return false;
+
+    return ScriptRegistry<PlayerScript>::ForEachEnabledHookWithReturn(PLAYERHOOK_IS_AI_CONTROLLED, [&](PlayerScript* script)
+    {
+        return script->IsAIControlled(player);
+    });
+}
+
+bool Script_HasAIFollowers(Player const* player)
+{
+    if (!player)
+        return false;
+
+    return ScriptRegistry<PlayerScript>::ForEachEnabledHookWithReturn(PLAYERHOOK_HAS_AI_FOLLOWERS, [&](PlayerScript* script)
+    {
+        return script->HasAIFollowers(player);
+    });
+}
+
+uint8 Script_GetAllowedRoles(Player const* player)
+{
+    if (!player)
+        return 0;
+
+    uint8 roles = 0;
+    ScriptRegistry<PlayerScript>::ForEachEnabledHookWithReturn(PLAYERHOOK_GET_ALLOWED_ROLES, [&](PlayerScript* script)
+    {
+        return script->GetAllowedRoles(player, roles);
+    });
+
+    return roles;
+}
+
+void Script_SetForcedRole(Player* player, uint8 role)
+{
+    if (!player)
+        return;
+
+    ScriptRegistry<PlayerScript>::ForEachEnabledHook(PLAYERHOOK_SET_FORCED_ROLE, [&](PlayerScript* script)
+    {
+        script->SetForcedRole(player, role);
+    });
+}
+
+bool Script_IsMachineDriven(Player const* player)
+{
+    if (!player)
+        return false;
+
+    return ScriptRegistry<PlayerScript>::ForEachEnabledHookWithReturn(PLAYERHOOK_IS_MACHINE_DRIVEN, [&](PlayerScript* script)
+    {
+        return script->IsMachineDriven(player);
+    });
 }

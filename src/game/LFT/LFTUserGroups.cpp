@@ -399,7 +399,7 @@ bool LFTManager::CreateGroupListing(Player* leader, std::string const& title, st
     if (!leader || !leader->IsInWorld())
         return false;
 
-    if (!sScriptMgr.IsBotManaged(leader))
+    if (!Script_IsAIControlled(leader))
         return false;
 
     if (!IsListingLeader(leader))
@@ -454,7 +454,7 @@ bool LFTManager::RemoveGroupListing(Player* leader)
     if (!leader || !leader->IsInWorld())
         return false;
 
-    if (!sScriptMgr.IsBotManaged(leader))
+    if (!Script_IsAIControlled(leader))
         return false;
 
     if (!RemoveListingsByCreator(leader->GetObjectGuid()))
@@ -471,7 +471,7 @@ bool LFTManager::AcceptListingSignup(Player* leader, ObjectGuid const& memberGui
     if (!leader || !leader->IsInWorld())
         return false;
 
-    if (!sScriptMgr.IsBotManaged(leader))
+    if (!Script_IsAIControlled(leader))
         return false;
 
     Listing* listing = GetListingByCreator(leader->GetObjectGuid());
@@ -485,7 +485,7 @@ bool LFTManager::AcceptListingSignup(Player* leader, ObjectGuid const& memberGui
     if (!member || (member != leader && (!leader->GetGroup() || !leader->GetGroup()->IsMember(memberGuid))))
         return false;
 
-    if (!sScriptMgr.IsBotManaged(member))
+    if (!Script_IsAIControlled(member))
         return false;
 
     uint8 roleIdx = RoleIndexFromMask(role);
@@ -515,7 +515,7 @@ bool LFTManager::DeclineListingSignup(Player* leader, ObjectGuid const& memberGu
     if (!leader || !leader->IsInWorld())
         return false;
 
-    if (!sScriptMgr.IsBotManaged(leader))
+    if (!Script_IsAIControlled(leader))
         return false;
 
     Listing* listing = GetListingByCreator(leader->GetObjectGuid());
@@ -529,7 +529,7 @@ bool LFTManager::DeclineListingSignup(Player* leader, ObjectGuid const& memberGu
     if (!member || (member != leader && (!leader->GetGroup() || !leader->GetGroup()->IsMember(memberGuid))))
         return false;
 
-    if (!sScriptMgr.IsBotManaged(member))
+    if (!Script_IsAIControlled(member))
         return false;
 
     std::string name = member->GetName();

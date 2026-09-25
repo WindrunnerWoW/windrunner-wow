@@ -322,6 +322,7 @@ miscellaneous/gameobject_scripts.cpp
 miscellaneous/feature_custom_spell_test.cpp
 miscellaneous/feature_gardening.cpp
 miscellaneous/feature_transmog.h
+miscellaneous/item_donation_mark.cpp
 miscellaneous/item_orb_of_draconic_energy.cpp
 miscellaneous/npc_loothelper.h
 miscellaneous/npc_loothelper.cpp
@@ -351,7 +352,6 @@ world/arathi_highlands.cpp
 world/ashenvale.cpp
 world/alahthalas.cpp
 world/azshara.cpp
-world/balor.cpp
 world/blasted_lands.cpp
 world/boss_omen.cpp
 world/boss_omen.h
@@ -470,6 +470,7 @@ include_directories(
   ${CMAKE_SOURCE_DIR}/src/game/Movement/spline
   ${CMAKE_SOURCE_DIR}/src/game/Objects
   ${CMAKE_SOURCE_DIR}/src/game/OutdoorPvP
+  ${CMAKE_SOURCE_DIR}/src/game/PlayerBots
   ${CMAKE_SOURCE_DIR}/src/game/Protocol
   ${CMAKE_SOURCE_DIR}/src/game/Spells
   ${CMAKE_SOURCE_DIR}/src/game/Threat
@@ -558,13 +559,5 @@ else()
       target_precompile_headers(${LIBRARY_NAME} PRIVATE
           ${PCHS}
           )
-  endif()
-endif()
-
-if(NOT USE_PCH)
-  if(MSVC)
-    target_compile_options(${LIBRARY_NAME} PRIVATE "/FI${CMAKE_CURRENT_SOURCE_DIR}/scriptPCH.h")
-  else()
-    target_compile_options(${LIBRARY_NAME} PRIVATE "-include${CMAKE_CURRENT_SOURCE_DIR}/scriptPCH.h")
   endif()
 endif()

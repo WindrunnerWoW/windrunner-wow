@@ -251,6 +251,21 @@ class Log : public MaNGOS::Singleton<Log, MaNGOS::ClassLevelLockable<Log, std::m
 #endif
         }
 
+        template<typename... Args>
+        void Out(LogFile type, LogLevel level, const char* str, Args... args)
+        {
+            if (level == LOG_LVL_DEBUG)
+                outDebug(str, args...);
+            else if (level == LOG_LVL_DETAIL)
+                outDetail(str, args...);
+            else if (level == LOG_LVL_BASIC)
+                outBasic(str, args...);
+            else
+                outError(str, args...);
+
+            out(type, str, args...);
+        }
+
         void outCommand(uint32 account, char const* str, ...) ATTR_PRINTF(3,4);
         void outString(); // any log level
         void outString(char const* str, ...) ATTR_PRINTF(2,3);

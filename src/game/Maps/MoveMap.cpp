@@ -207,6 +207,15 @@ bool MMapManager::loadMap(uint32 mapId, int32 x, int32 y)
 
 bool MMapManager::unloadMap(uint32 mapId, int32 x, int32 y)
 {
+    // dtNavMesh::removeTile zeroes tile->polys, and getTileAndPolyByRefUnsafe
+    // reads it without validating: any polyRef that outlives the removal
+    // resolves to nullptr + index. Keeping the tile loaded makes that
+    // impossible, and costs less than locking queries against cleanup.
+    // Crashes of 2026-08-05: poly was 0x2fce0 and 0x2cca0, both exact
+    // multiples of sizeof(dtPoly) = 32.
+    if (!sWorld.getConfig(CONFIG_BOOL_MMAP_TILE_UNLOAD))
+        return false;
+
     // check if we have this map loaded
     if (loadedMMaps.find(mapId) == loadedMMaps.end())
     {
@@ -250,6 +259,12 @@ bool MMapManager::unloadMap(uint32 mapId, int32 x, int32 y)
 
 bool MMapManager::unloadMap(uint32 mapId)
 {
+    // Same reason as above, plus: MMapData is keyed by mapId, not by
+    // instance. Tearing down one instance while a second one of the same
+    // map is running would pull the mesh out from under it.
+    if (!sWorld.getConfig(CONFIG_BOOL_MMAP_TILE_UNLOAD))
+        return false;
+
     if (loadedMMaps.find(mapId) == loadedMMaps.end())
     {
         // file may not exist, therefore not loaded

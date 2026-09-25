@@ -575,6 +575,12 @@ public:
     uint32    manaPerSecond = 0;                               // 34
     uint32    manaPerSecondPerLevel = 0;                       // 35
     uint32    rangeIndex = 1;                                  // 36
+    // AzerothCore keeps the distances on the spell itself. Here they live in
+    // SpellRange.dbc behind rangeIndex, so these look them up. The positive
+    // flag selects the friendly range on that core; this DBC carries one pair
+    // for both, so the argument is accepted and ignored.
+    float GetMaxRange(bool /*positive*/ = false) const;
+    float GetMinRange(bool /*positive*/ = false) const;
     float     speed = 0.f;                                     // 37
     //uint32    modalNextSpell;                                  // 38 not used
     uint32    StackAmount = 0;                                 // 39
@@ -701,6 +707,10 @@ public:
     bool HasAttribute(SpellAttributesEx2 attribute) const { return AttributesEx2 & attribute; }
     bool HasAttribute(SpellAttributesEx3 attribute) const { return AttributesEx3 & attribute; }
     bool HasAttribute(SpellAttributesEx4 attribute) const { return AttributesEx4 & attribute; }
+    // bot passes raw int (cmangos has a unified enum;
+    // Penqle splits per word). Stub returns false for unknown ints (bot only uses these for
+    // attributes Penqle may not even have; behavior matches "no extended attribute set").
+    bool HasAttribute(int /*attribute*/) const { return false; }
 
     bool HasSpellInterruptFlag(SpellInterruptFlags flag) const { return InterruptFlags & flag; }
     bool HasAuraInterruptFlag(SpellAuraInterruptFlags flag) const { return AuraInterruptFlags & flag; }
@@ -1119,6 +1129,8 @@ public:
     float CalculateCustomCoefficient(WorldObject const* caster, DamageEffectType const damageType, float coeff, Spell* spell, bool donePart) const;
     bool CanTriggerWeaponProcs() const;
     SpellCastResult GetErrorAtShapeshiftedCast(uint32 form) const;
+    // AzerothCore spelling of the same question.
+    SpellCastResult CheckShapeshift(uint32 form) const { return GetErrorAtShapeshiftedCast(form); }
     bool IsTargetInRange(WorldObject const* pCaster, WorldObject const* pTarget) const; // to be used in scripts for simple pre-cast range checks
     uint32 GetMechanic() const { return Mechanic; }
     uint32 GetManaCost() const { return manaCost; }

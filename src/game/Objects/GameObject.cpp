@@ -94,6 +94,7 @@ GameObject::GameObject() : WorldObject(),
     m_lootState = GO_NOT_READY;
     m_spawnedByDefault = true;
     m_useTimes = 0;
+    m_chargeOverride = 0;
     m_spellId = 0;
     m_cooldownTime = 0;
     i_AI = nullptr;
@@ -627,7 +628,7 @@ void GameObject::Update(uint32 update_diff, uint32 /*p_time*/)
                     }
                 }
 
-                if (uint32 max_charges = goInfo->GetCharges())
+                if (uint32 max_charges = GetEffectiveMaxCharges())
                 {
                     if (m_useTimes >= max_charges)
                     {
@@ -1460,6 +1461,15 @@ void GameObject::ResetDoorOrButton()
     m_cooldownTime = 0;
 }
 
+uint32 GameObject::GetEffectiveMaxCharges() const
+{
+    if (m_chargeOverride)
+        return m_chargeOverride;
+    if (GameObjectInfo const* info = GetGOInfo())
+        return info->GetCharges();
+    return 0;
+}
+
 void GameObject::UseDoorOrButton(uint32 time_to_restore, bool alternative /* = false */)
 {
     // GO_NOT_READY: needed in OnGameObjectCreate
@@ -1608,7 +1618,7 @@ void GameObject::Use(Unit* user)
             if (HasCustomAnim())
                 SendGameObjectCustomAnim();
 
-            if (uint32 max_charges = GetGOInfo()->GetCharges())
+            if (uint32 max_charges = GetEffectiveMaxCharges())
             {
                 AddUse();
                 if (m_useTimes >= max_charges)

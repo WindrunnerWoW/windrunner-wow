@@ -24,7 +24,6 @@
 #include "Opcodes.h"
 #include "Log.h"
 #include "Player.h"
-#include "SpellMgr.h"
 #include "WorldPacket.h"
 #include "WorldSession.h"
 #include "UpdateMask.h"
@@ -71,7 +70,7 @@ void WorldSession::HandleUnlearnSkillOpcode(WorldPacket & recv_data)
 {
     uint32 skill_id;
     recv_data >> skill_id;
-    SkillRaceClassInfoEntry const* rcEntry = sSpellMgr.GetSkillRaceClassInfo(skill_id, GetPlayer()->GetRace(), GetPlayer()->GetClass());
+    SkillRaceClassInfoEntry const* rcEntry = GetSkillRaceClassInfo(skill_id, GetPlayer()->GetRace(), GetPlayer()->GetClass());
     
     if (!rcEntry || !(rcEntry->flags & SKILL_FLAG_UNLEARNABLE))
     {

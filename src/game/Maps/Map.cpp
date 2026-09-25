@@ -58,6 +58,7 @@
 #include "LFGMgr.h"
 #include "Geometry.h"
 #include "CreatureGroups.h"
+#include "Autoscaling/AutoScaler.hpp"
 #include "Logging/DatabaseLogger.hpp"
 #include "PerfStats.h"
 
@@ -116,6 +117,12 @@ Map::~Map()
     --PerfStats::g_totalMaps;
 }
 
+// stub graveyard manager forwards to sObjectMgr.
+WorldSafeLocsEntry const* Map::GraveyardManagerStub::GetClosestGraveYard(float x, float y, float z, uint32 MapId, Team team) const
+{
+    return sObjectMgr.GetClosestGraveYard(x, y, z, MapId, team);
+}
+
 void Map::LoadMapAndVMap(int gx, int gy)
 {
     if (m_bLoadedGrids[gx][gy])
@@ -166,9 +173,21 @@ Map::Map(uint32 id, time_t expiry, uint32 InstanceId)
 
     if (IsContinent())
     {
-        m_motionThreads.reset(new ThreadPool(sWorld.getConfig(CONFIG_UINT32_CONTINENTS_MOTIONUPDATE_THREADS), "MotionUpdate"));
-        m_objectThreads.reset(new ThreadPool(std::max((int)sWorld.getConfig(CONFIG_UINT32_MAP_OBJECTSUPDATE_THREADS) -1,0), "ObjectUpdate"));
-        m_visibilityThreads.reset(new ThreadPool(std::max((int)sWorld.getConfig(CONFIG_UINT32_MAP_VISIBILITYUPDATE_THREADS) -1,0), "Visibility"));
+        int motionThreads = sWorld.getConfig(CONFIG_UINT32_CONTINENTS_MOTIONUPDATE_THREADS);
+        int objectThreads = std::max((int)sWorld.getConfig(CONFIG_UINT32_MAP_OBJECTSUPDATE_THREADS) - 1, 0);
+        int visibilityThreads = std::max((int)sWorld.getConfig(CONFIG_UINT32_MAP_VISIBILITYUPDATE_THREADS) - 1, 0);
+#ifdef ENABLE_ELUNA
+        if (sElunaConfig->IsElunaEnabled() && (motionThreads || objectThreads || visibilityThreads))
+        {
+            ELUNA_LOG_ERROR("Map %u has parallel object updates configured; disabling them because its Lua state is single-threaded", id);
+            motionThreads = 0;
+            objectThreads = 0;
+            visibilityThreads = 0;
+        }
+#endif
+        m_motionThreads.reset(new ThreadPool(motionThreads, "MotionUpdate"));
+        m_objectThreads.reset(new ThreadPool(objectThreads, "ObjectUpdate"));
+        m_visibilityThreads.reset(new ThreadPool(visibilityThreads, "Visibility"));
         m_cellThreads.reset(new ThreadPool(std::max((int)sWorld.getConfig(CONFIG_UINT32_MTCELLS_THREADS) - 1, 0), "CellUpdate"));
         m_visibilityThreads->start<ThreadPool::MySQL<ThreadPool::MultiQueue>>();
         m_cellThreads->start();
@@ -2205,6 +2224,9 @@ bool DungeonMap::Add(Player *player)
     if (IsRaid())
         ChatHandler(player).SendSysMessage("There is a grace period of 10 minutes allowing you to trade raid loot to others in case its wrongly assigned.");
 
+    //everything checked and added. scale now.
+    sAutoScaler->Scale(this);
+
     return true;
 }
 
@@ -2314,6 +2336,9 @@ void DungeonMap::Remove(Player *player, bool remove)
         m_unloadTimer = m_unloadWhenEmpty ? MIN_UNLOAD_DELAY : std::max(sWorld.getConfig(CONFIG_UINT32_INSTANCE_UNLOAD_DELAY), (uint32)MIN_UNLOAD_DELAY);
 
     Map::Remove(player, remove);
+
+    if (m_mapRefManager.getSize() > 0)
+        sAutoScaler->Scale(this);
 
     // for normal instances schedule the reset after all players have left
     SetResetSchedule(true);
@@ -3786,4 +3811,19 @@ Creature* Map::LoadCreatureSpawnWithGroup(uint32 leaderDbGuid, bool delaySpawn)
     }
 
     return pLeader;
+}
+
+
+// See the declarations in Map.h: the pass-through to the movemap manager for
+// module code that reaches the navmesh through the map.
+#include "Maps/MoveMap.h"
+
+dtNavMesh const* Map::MapCollisionData::MMapDataAccess::GetNavMesh() const
+{
+    return MMAP::MMapFactory::createOrGetMMapManager()->GetNavMesh(mapId);
+}
+
+dtNavMeshQuery const* Map::MapCollisionData::MMapDataAccess::GetNavMeshQuery() const
+{
+    return MMAP::MMapFactory::createOrGetMMapManager()->GetNavMeshQuery(mapId);
 }

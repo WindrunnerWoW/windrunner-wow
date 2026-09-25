@@ -41,18 +41,28 @@ class ChannelMgr
         }
         ~ChannelMgr();
 
-        Channel *GetOrCreateChannel(std::string const& name, bool allowAreaDependantChans = true);
+        Channel *GetOrCreateChannel(std::string const& name, bool allowAreaDependantChans = true,
+            ObjectGuid playerGuid = ObjectGuid());
         Channel *GetChannel(std::string const& name, PlayerPointer p, bool pkt = true);
-        // Read access for modules: every channel of this faction.
+        // bot passes Player*; PlayerPointer is a smart-ish wrapper.
+        Channel* GetChannel(std::string const& name, Player* p, bool pkt = true);
+        // cmangos camelCase aliases.
         ChannelMap const& GetChannels() const { return channels; }
+        Channel* GetJoinChannel(std::string const& name, uint32 /*channelId*/ = 0) { return GetOrCreateChannel(name); }
+        Channel* GetJoinChannel(const char* name, uint32 channelId = 0) { return GetJoinChannel(std::string(name ? name : ""), channelId); }
         void LeftChannel(std::string const& name);
         void CreateDefaultChannels();
         static void AnnounceBothFactionsChannel(std::string const& channelName, ObjectGuid playerGuid, char const* message);
+        static bool IsValidChannelName(std::string const& name);
+        static bool IsReservedChannelName(std::string const& name);
+        static bool CanPlayerJoinCustomChannel(ObjectGuid playerGuid);
+        uint32 GetCustomChannelCount(ObjectGuid playerGuid) const;
 
     protected:
         Team m_team = ALLIANCE;
     private:
         ChannelMap channels;
+        static uint32 customChannelCount;
 };
 
 class AllianceChannelMgr : public ChannelMgr 

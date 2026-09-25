@@ -240,11 +240,6 @@ void DynamicObject::RemoveAffected(Unit* unit)
     m_affected.erase(unit->GetObjectGuid());
 }
 
-bool DynamicObject::IsAffecting(Unit const* unit) const
-{
-    return unit && m_affected.find(unit->GetObjectGuid()) != m_affected.end();
-}
-
 void DynamicObject::Delay(int32 delaytime)
 {
     m_aliveDuration -= delaytime;
