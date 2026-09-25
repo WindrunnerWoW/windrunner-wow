@@ -1,0 +1,47 @@
+################################################
+# MANGOS Auction House Bot Configuration file  #
+################################################
+
+[AhbotConf]
+ConfVersion=2026092200
+
+# Disable the original AuctionHouseBot. AhBot replaces it completely.
+AuctionHouseBot.Seller.Enabled = 0
+AuctionHouseBot.Buyer.Enabled = 0
+
+###################################################################################################################
+# REQUIRED SETUP
+#
+# AhBot randomly selects existing player bots as auction sellers and buyers.
+# Keep it disabled until the market-stat SQL has been imported into the
+# characters database. AhBot reads ahbot_price_stats, ahbot_listing_stats,
+# ahbot_price, and the sample listing counts from that import on every cycle.
+###################################################################################################################
+
+AhBot.Enabled = 0
+
+###################################################################################################################
+# MARKET SIZE
+#
+# AhBot derives the combined daily target directly from the imported sample:
+# it rolls between the smallest and largest complete snapshot listing counts.
+# The target is stored in characters.ahbot_house_target, so it remains stable
+# for the day. ItemsPerCycle is the only population setting: it limits how
+# quickly the market fills toward that sampled target.
+#
+# The category distribution, price percentiles, scarcity weighting, stack
+# rules, and price safety limits are fixed runtime policy. Market prices and
+# item availability come from the maintained market-stat import rather than a
+# second hand-maintained configuration profile.
+###################################################################################################################
+
+AhBot.ItemsPerCycle = 100
+
+# Set either switch to 0 when a temporary seller-only or buyer-only run is
+# needed. Both are normally enabled.
+AhBot.Seller.Enabled = 1
+AhBot.Buyer.Enabled = 1
+
+# Set to 1 only while diagnosing a run. Use `.ahbot status` and `.ahbot
+# simulate` to inspect the configured market without making changes.
+AhBot.DEBUG = 0
