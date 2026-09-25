@@ -17,6 +17,7 @@ concurrency:
 env:
   RELEASE_VERSION: '0.1'
   BUILD_TYPE: Release
+  _CL_: /MP1
   VCPKG_ROOT: C:/vcpkg
   VCPKG_DEFAULT_TRIPLET: x64-windows
   INSTALL_DIR: ${{ github.workspace }}/install
@@ -173,7 +174,7 @@ jobs:
       - name: Build
         shell: pwsh
         run: |
-          cmake --build build --config $env:BUILD_TYPE --parallel
+          cmake --build build --config $env:BUILD_TYPE --parallel 1
           if ($LASTEXITCODE -ne 0) { throw "build failed" }
 
       - name: Install
