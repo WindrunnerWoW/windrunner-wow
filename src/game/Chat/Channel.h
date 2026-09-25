@@ -82,6 +82,13 @@ enum ChannelId
     CHANNEL_ID_WORLD                = 27
 };
 
+enum ChannelResourceLimits
+{
+    CHANNEL_MAX_NAME_LENGTH              = 64,
+    CHANNEL_MAX_CUSTOM_CHANNELS          = 256,
+    CHANNEL_MAX_CUSTOM_CHANNELS_PER_PLAYER = 10
+};
+
 inline bool IsDefenseChannel(uint32 channelId)
 {
     switch (channelId)
@@ -96,7 +103,11 @@ inline bool IsDefenseChannel(uint32 channelId)
 class Channel
 {
     friend class ChannelBroadcaster;
+    // bot calls Channel::Say directly.
+    friend class PlayerbotAI;
     public:
+        // bot's Say(Player*, ...) overload.
+        void Say(Player const* player, const char* what, uint32 lang = LANG_UNIVERSAL, bool skipCheck = false);
     enum ChannelFlags
     {
         CHANNEL_FLAG_NONE       = 0x00,
@@ -156,7 +167,7 @@ class Channel
             if(state) flags |= MEMBER_FLAG_OWNER;
             else flags &= ~MEMBER_FLAG_OWNER;
         }
-        bool IsModerator() { return flags & MEMBER_FLAG_MODERATOR; }
+        bool IsModerator() const { return flags & MEMBER_FLAG_MODERATOR; }
         void SetModerator(bool state)
         {
             if(state) flags |= MEMBER_FLAG_MODERATOR;
@@ -186,8 +197,11 @@ class Channel
         void SetSecurityLevel(uint8 sec) { m_securityLevel = sec; }
         uint8 GetSecurityLevel() const { return m_securityLevel; }
         Team GetTeam() const { return m_Team;}
+        bool IsMember(ObjectGuid guid) const { return IsOn(guid); }
 
-        void Join(ObjectGuid guid, const char *password, bool checkPassword = true);
+        bool Join(ObjectGuid guid, const char *password, bool checkPassword = true);
+        // Player* overload.
+        bool Join(Player const* player, const char* password = "");
         void Leave(ObjectGuid guid, bool send = true);
         void KickOrBan(ObjectGuid guid, const char *targetName, bool ban);
         void Kick(ObjectGuid guid, const char *targetName) { KickOrBan(guid, targetName, false); }
@@ -221,13 +235,6 @@ class Channel
 
         // Should be only called from ChannelBroadcaster
 		void Say(ObjectGuid guid, const char* what, uint32 lang = LANG_UNIVERSAL, bool skipCheck = false);
-
-        // Why Say() would refuse a message of this sender instead of delivering it: not on the
-        // channel, muted there, or no moderator while the channel is moderated. Shared by Say()
-        // (which answers with the notification) and AsyncSay() (which fires the module hook
-        // only for messages that pass).
-        enum SayRefusal { SAY_OK, SAY_NOT_MEMBER, SAY_MUTED, SAY_NOT_MODERATOR };
-        SayRefusal CheckSay(ObjectGuid guid, bool skipCheck);
 
         // initial packet data (notify type and channel name)
         void MakeNotifyPacket(WorldPacket *data, uint8 notify_type);

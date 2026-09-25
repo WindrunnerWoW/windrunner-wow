@@ -973,7 +973,17 @@ float HonorMgr::HonorableKillPoints(Player* killer, Player* victim, uint32 group
         return 0.0;
 
     uint32 totalKills = killer->GetHonorMgr().CalculateTotalKills(victim);
-    uint32 victimRank = victim->GetHonorMgr().GetRank().visualRank;
+    // visualRank is int8 and runs [-4..14]: the four dishonorable ranks are
+    // stored as negatives (HonorMgr.cpp:1050, prk.rank * -1). Widening that
+    // to uint32 turned -1 into 4294967295, and GetHonorGain feeds the rank
+    // to exp(0.05331 * rank), which overflows to +inf. int32(inf) is
+    // INT_MIN, so Player::RewardHonor saw rewPoints < 0, took its
+    // `rewPoints > 0` branch and threw the kill away - logging
+    // "HONOR GIVEN -2147483648 NEGATIVE" instead of paying out. A victim at
+    // or below rank 0 counts as rank 0: exp(0) = 1, so base honor, never a
+    // bonus and never nothing.
+    int8 rawVictimRank = victim->GetHonorMgr().GetRank().visualRank;
+    uint32 victimRank = rawVictimRank > 0 ? uint32(rawVictimRank) : 0;
     uint8 killerLevel = killer->GetLevel();
     uint8 victimLevel = victim->GetLevel();
 

@@ -247,11 +247,18 @@ class Item : public Object
 
         Item();
         virtual ~Item();
+        // bot calls item->SetUsedInSpell(true) when queued.
+        // Penqle has no equivalent; stub no-op.
+        void SetUsedInSpell(bool /*used*/) {}
 
         virtual bool Create(uint32 guidlow, uint32 itemid, ObjectGuid ownerGuid = ObjectGuid());
         void RemoveFromWorld() override;
 
         ItemPrototype const* GetProto() const;
+        // AzerothCore spelling.
+#ifndef ENABLE_ELUNA
+        ItemPrototype const* GetTemplate() const { return GetProto(); }
+#endif
         bool ChangeEntry(ItemPrototype const* pNewProto);
 
         ObjectGuid const& GetOwnerGuid() const { return GetGuidValue(ITEM_FIELD_OWNER); }

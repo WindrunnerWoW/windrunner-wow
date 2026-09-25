@@ -533,6 +533,11 @@ void BattleGroundAB::EndBattleGround(Team winner)
 WorldSafeLocsEntry const* BattleGroundAB::GetClosestGraveYard(Player* player)
 {
     // repop players at the entrance GY if BG is not started yet
+    // IDs 889/890 are standard vanilla WorldSafeLocs.dbc IDs, but this
+    // server's DBC (Turtle WoW 1.18 client, only 174 entries total) doesn't
+    // have them - confirmed live 2026-07-27/28, same root cause as the WSG
+    // graveyard fix. Real entries exist under IDs 113 (Horde)/114 (Alliance),
+    // found by matching map_id=529 coordinates against the two base corners.
     if (GetStatus() != STATUS_IN_PROGRESS && !player->IsGameMaster())
     {
         if (WorldSafeLocsEntry const* gEntry = sWorldSafeLocsStore.LookupEntry(player->GetTeam() == ALLIANCE ? 114 : 113))

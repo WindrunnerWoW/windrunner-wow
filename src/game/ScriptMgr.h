@@ -22,7 +22,6 @@
 #define _SCRIPTMGR_H
 
 #include "Common.h"
-#include <string>
 #include "Log.h"
 #include "Policies/Singleton.h"
 #include "ObjectGuid.h"
@@ -149,6 +148,7 @@ enum eScriptCommand
     SCRIPT_COMMAND_CREATE_ITEM              = 17,           // source = Player (from provided source or target)
                                                             // datalong = item_id
                                                             // datalong2 = amount
+                                                            // datalong3 = optional money cost in copper
     SCRIPT_COMMAND_DESPAWN_CREATURE         = 18,           // source = Creature
                                                             // datalong = despawn_delay
                                                             // datalong2 = respawn_delay
@@ -377,8 +377,6 @@ enum eScriptCommand
     SCRIPT_COMMAND_START_SCRIPT_ON_ZONE     = 92,           // source = Map
                                                             // datalong = generic_script_id
                                                             // datalong2 = zone_id
-    SCRIPT_COMMAND_TAKE_MONEY               = 93,           // source = Player (from provided source or target)
-                                                            // datalong = copper amount
 
     SCRIPT_COMMAND_MAX,
 
@@ -677,6 +675,7 @@ struct ScriptInfo
         {
             uint32 itemId;                                  // datalong
             uint32 amount;                                  // datalong2
+            uint32 moneyCost;                               // datalong3; optional copper cost
         } createItem;
 
         struct                                              // SCRIPT_COMMAND_DESPAWN_CREATURE (18)
@@ -1106,11 +1105,6 @@ struct ScriptInfo
             uint32 zoneId;                                  // datalong2
         } startScriptOnZone;
 
-        struct                                              // SCRIPT_COMMAND_TAKE_MONEY (93)
-        {
-            uint32 amount;                                  // datalong
-        } takeMoney;
-
         struct
         {
             uint32 data[9];
@@ -1399,7 +1393,6 @@ struct SpellScript
     virtual void OnSuccessfulStart(Spell* /*spell*/) const {}
     virtual void OnSuccessfulFinish(Spell* /*spell*/) const {}
     virtual void OnFinish(Spell* /*spell*/, bool /*ok*/) const {}
-    virtual void OnComboPointsSpent(Spell* /*spell*/, uint8 /*comboPoints*/) const {}
     virtual SpellCastResult OnCheckCast(Spell* /*spell*/, bool /*strict*/) const { return SPELL_CAST_OK; }
     virtual bool OnCanCastNonCombatSpellInCombat(Spell* /*spell*/) const { return false; }
     virtual std::optional<uint32> OnCalculatePowerCost(SpellEntry const* /*spellInfo*/, Unit* /*caster*/, Spell* /*spell*/, Item* /*castItem*/) const { return std::nullopt; }
@@ -1419,7 +1412,6 @@ struct SpellScript
     virtual void OnPrepareProcFlags(Spell* /*spell*/, bool& /*canTrigger*/, uint32& /*procAttacker*/, uint32& /*procVictim*/) const {}
     virtual void OnBeforeProc(Spell* /*spell*/, Unit* /*target*/, SpellMissInfo /*missInfo*/, uint32& /*procAttacker*/, uint32& /*procVictim*/, uint32& /*procEx*/, bool& /*triggerWeaponProcs*/) const {}
     virtual void OnHit(Spell* /*spell*/, SpellMissInfo /*missInfo*/) const {}
-    virtual void OnAfterHeal(Spell* /*spell*/, Unit* /*target*/, uint32 /*heal*/, int32 /*gain*/, bool /*crit*/) const {}
     virtual void OnAfterHit(Spell* /*spell*/) const {}
     virtual bool OnSendLoot(Spell* /*spell*/, GameObject* /*target*/, uint32 /*lootType*/, LockType /*lockType*/) const { return false; }
     virtual void OnSummonBeforeAdd(Spell* /*spell*/, Pet* /*summon*/, uint32 /*summonIndex*/) const {}
@@ -1518,8 +1510,6 @@ struct Script
     void RegisterSelf(bool reportUnused = true);
 };
 
-class WorldPacket;
-
 class ScriptMgr
 {
     public:
@@ -1611,9 +1601,6 @@ class ScriptMgr
 
         bool OnGossipHello(Player* pPlayer, Creature* pCreature);
         bool OnGossipHello(Player* pPlayer, GameObject* pGameObject);
-        bool IsBotManaged(Player* who);
-        uint8 GetBotRoles(Player* who);
-        bool OnAddonMessage(Player* from, std::string const& msg);
         bool OnGossipSelect(Player* pPlayer, Creature* pCreature, uint32 sender, uint32 action, const char* code);
         bool OnGossipSelect(Player* pPlayer, GameObject* pGameObject, uint32 sender, uint32 action, const char* code);
         bool OnQuestAccept(Player* pPlayer, Creature* pCreature, Quest const* pQuest);
@@ -1656,6 +1643,14 @@ class ScriptMgr
         typedef std::unordered_map<int32, CreatureEscortData> EscortDataMap;
 
         AreaTriggerScriptMap    m_AreaTriggerScripts;
+
+    public:
+        // Read-only view for modules that need the candidate list itself
+        // (mod-dungeon-clear's areatrigger relay walks every scripted trigger
+        // once at startup). Same pattern as ObjectMgr::GetAllCreatureData.
+        AreaTriggerScriptMap const& GetAllAreaTriggerScripts() const { return m_AreaTriggerScripts; }
+
+    private:
         EventIdScriptMap        m_EventIdScripts;
 
         ScriptNameMap           m_scriptNames;
@@ -1932,6 +1927,16 @@ template<class TScript> typename ScriptRegistry<TScript>::ScriptMap ScriptRegist
 template<class TScript> typename ScriptRegistry<TScript>::AfterDatabaseLoadScriptList ScriptRegistry<TScript>::AfterDatabaseLoadScripts;
 template<class TScript> typename ScriptRegistry<TScript>::EnabledHooksList ScriptRegistry<TScript>::EnabledHooks;
 template<class TScript> uint32 ScriptRegistry<TScript>::_scriptIdCounter = 0;
+
+// Questions the core asks of whatever module drives simulated characters.
+// Deliberately not named after any one module: the playerbots tree answers
+// these today, a second population module would answer the same names.
+class Player;
+bool Script_IsAIControlled(Player const* player);
+bool Script_IsMachineDriven(Player const* player);
+bool Script_HasAIFollowers(Player const* player);
+uint8 Script_GetAllowedRoles(Player const* player);
+void Script_SetForcedRole(Player* player, uint8 role);
 
 uint32 GetAreaTriggerScriptId(uint32 triggerId);
 uint32 GetEventIdScriptId(uint32 eventId);

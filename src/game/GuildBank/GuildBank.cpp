@@ -18,6 +18,7 @@
 
 #include "GuildBank.h"
 #include "Guild.h"
+#include "Config/Config.h"   // GuildBank.NpcEntries* - which NPCs may open the bank
 #include "World.h"
 #include "ObjectMgr.h"
 #include "ObjectGuid.h"
@@ -27,6 +28,7 @@
 #include "PoolManager.h"
 #include "Language.h"
 #include "Log.h"
+#include <limits>
 #include "MapManager.h"
 #include "BattleGroundMgr.h"
 #include "MassMailMgr.h"
@@ -88,6 +90,35 @@ enum BankCommLimits
 	ADDON_MAX_PACKET_SIZE = 2096,
 };
 
+// Which creature entries a player has to stand next to for guild bank actions
+// to be accepted. Configurable so extra vault keepers can be placed in other
+// cities without a rebuild - Turtle ships decorative ones in Ironforge,
+// Darnassus, Undercity and Thunder Bluff that were never wired up.
+// Parsed once on first use; defaults reproduce the previous hardcoded pair.
+static std::set<uint32> const& GetGuildBankNpcEntries(bool horde)
+{
+    static std::set<uint32> allianceEntries;
+    static std::set<uint32> hordeEntries;
+    static bool loaded = false;
+
+    if (!loaded)
+    {
+        loaded = true;
+        auto parse = [](std::string const& list, std::set<uint32>& out)
+        {
+            std::string number;
+            std::istringstream stream(list);
+            while (std::getline(stream, number, ','))
+                if (uint32 entry = uint32(atoi(number.c_str())))
+                    out.insert(entry);
+        };
+        parse(sConfig.GetStringDefault("GuildBank.NpcEntriesAlliance", "80917"), allianceEntries);
+        parse(sConfig.GetStringDefault("GuildBank.NpcEntriesHorde", "80918"), hordeEntries);
+    }
+
+    return horde ? hordeEntries : allianceEntries;
+}
+
 GuildBank::GuildBank(bool isInfenoBank)
 {
 	b_infernoBank = isInfenoBank;
@@ -118,38 +149,63 @@ void GuildBank::HandleAddonMessages(std::string msg, Player* player)
 {
 	SetPlayer(player);
 
-	Creature* creature = player ? player->GetNPCIfCanInteractWith(player->GetSelectionGuid(), UNIT_NPC_FLAG_NONE) : nullptr;
-	if (!creature)
+	if (!player)
 		return;
 
+	// Two ways to be at a vault keeper, because upstream and this tree closed
+	// the same gap differently and each catches something the other misses.
+	//
+	// Upstream tests the creature the player has selected: the seven keepers by
+	// entry, plus anything whose gossip menu carries a guild banker option -
+	// that second half is the better mechanism, since a new keeper then needs a
+	// database row and no rebuild at all.
+	//
+	// It does require a selection, though. The configured entries are therefore
+	// still matched by proximity, which keeps GuildBank.NpcEntries* meaning what
+	// it always did and keeps the bank reachable with something else targeted.
 	bool canUseGuildBank = false;
 
-	switch (creature->GetEntry())
+	if (Creature* creature = player->GetNPCIfCanInteractWith(player->GetSelectionGuid(), UNIT_NPC_FLAG_NONE))
 	{
-		case 62008: // Faredin, Darnassus
-		case 62009: // Lorien Cogmender, Gnomeregan Exiles
-		case 62010: // Gewana Mosshoof, Thunder Bluff
-		case 62011: // Golgan Maltbrew, Ironforge
-		case 62012: // Arthur Montague, Undercity
-		case 80917: // Teller Plushner, Stormwind
-		case 80918: // Are, Orgrimmar
-			canUseGuildBank = true;
-			break;
-		default:
-			break;
+		switch (creature->GetEntry())
+		{
+			case 62008: // Faredin, Darnassus
+			case 62009: // Lorien Cogmender, Gnomeregan Exiles
+			case 62010: // Gewana Mosshoof, Thunder Bluff
+			case 62011: // Golgan Maltbrew, Ironforge
+			case 62012: // Arthur Montague, Undercity
+			case 80917: // Teller Plushner, Stormwind
+			case 80918: // Are, Orgrimmar
+				canUseGuildBank = true;
+				break;
+			default:
+				break;
+		}
+
+		if (!canUseGuildBank && creature->HasFlag(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_GOSSIP))
+		{
+			uint32 menuId = creature->GetDefaultGossipMenuId();
+			GossipMenuItemsMapBounds menuItems = sObjectMgr.GetGossipMenuItemsMapBounds(menuId);
+			if (menuItems.first == menuItems.second)
+				menuItems = sObjectMgr.GetGossipMenuItemsMapBounds(0);
+
+			for (GossipMenuItemsMap::const_iterator itr = menuItems.first; itr != menuItems.second; ++itr)
+			{
+				GossipMenuItems const& item = itr->second;
+				if (item.option_id == GOSSIP_OPTION_GUILD_BANKER && (item.npc_option_npcflag & creature->GetUInt32Value(UNIT_NPC_FLAGS)))
+				{
+					canUseGuildBank = true;
+					break;
+				}
+			}
+		}
 	}
 
-	if (!canUseGuildBank && creature->HasFlag(UNIT_NPC_FLAGS, UNIT_NPC_FLAG_GOSSIP))
+	if (!canUseGuildBank)
 	{
-		uint32 menuId = creature->GetDefaultGossipMenuId();
-		GossipMenuItemsMapBounds menuItems = sObjectMgr.GetGossipMenuItemsMapBounds(menuId);
-		if (menuItems.first == menuItems.second)
-			menuItems = sObjectMgr.GetGossipMenuItemsMapBounds(0);
-
-		for (GossipMenuItemsMap::const_iterator itr = menuItems.first; itr != menuItems.second; ++itr)
+		for (uint32 entry : GetGuildBankNpcEntries(player->GetTeamId() == TEAM_HORDE))
 		{
-			GossipMenuItems const& item = itr->second;
-			if (item.option_id == GOSSIP_OPTION_GUILD_BANKER && (item.npc_option_npcflag & creature->GetUInt32Value(UNIT_NPC_FLAGS)))
+			if (player->FindNearestCreature(entry, INTERACTION_DISTANCE))
 			{
 				canUseGuildBank = true;
 				break;
@@ -791,12 +847,33 @@ void GuildBank::DepositMoney(std::string msg)
 	Tokenizer params(msg, ':', 2);
 	if (params.size() == 2)
 	{
-		money = atoi(params[1]);
+		// strtoul, not atoi: the amount is held in a uint32, and atoi returns an
+		// int. It also tells us whether there was a number there at all.
+		char* end = nullptr;
+		unsigned long const parsed = strtoul(params[1], &end, 10);
+
+		if (end == params[1] || parsed > std::numeric_limits<uint32>::max())
+		{
+			_player->SendAddonMessage(prefix, "DepositMoney:Error:WrongSyntax(" + msg + ")");
+			return;
+		}
+
+		money = uint32(parsed);
 	}
 	else
 	{
 		// wrong syntax
 		_player->SendAddonMessage(prefix, "DepositMoney:Error:WrongSyntax(" + msg + ")");
+		return;
+	}
+
+	// Refuse before taking the money, not after. An overflow here does not cap
+	// the balance, it wraps it to near zero - the gold would be gone and the
+	// depositor would already have paid for it.
+	if (money > std::numeric_limits<uint32>::max() - b_money)
+	{
+		_player->GetSession()->SendNotification("Your guild bank cannot hold that much.");
+		_player->SendAddonMessage(prefix, "DepositMoney:Error:TooMuch");
 		return;
 	}
 
@@ -827,7 +904,16 @@ void GuildBank::WithdrawMoney(std::string msg)
 	Tokenizer params(msg, ':', 2);
 	if (params.size() == 2)
 	{
-		money = atol(params[1]);
+		char* end = nullptr;
+		unsigned long const parsed = strtoul(params[1], &end, 10);
+
+		if (end == params[1] || parsed > std::numeric_limits<uint32>::max())
+		{
+			_player->SendAddonMessage(prefix, "WithdrawMoney:Error:WrongSyntax(" + msg + ")");
+			return;
+		}
+
+		money = uint32(parsed);
 	}
 	else
 	{

@@ -148,6 +148,12 @@ struct DefaultTargetSelector : public unary_function<Unit*, bool>
 class CreatureAI
 {
     public:
+        // AzerothCore lets a script veto a target. Scripts on this core have no
+        // such hook, so the default answer is the only answer: no veto. The one
+        // caller uses it to spot a mob that is unattackable by script - here
+        // that state is expressed through flags, which the caller checks too.
+        virtual bool CanAIAttack(Unit const* /*target*/) const { return true; }
+
         explicit CreatureAI(Creature* creature) : m_creature(creature), m_bUseAiAtControl(false), m_bMeleeAttack(true), m_bCombatMovement(true), m_uiCastingDelay(CREATURE_CASTING_DELAY), m_uLastAlertTime(0)
         {
             SetSpellsList(creature->GetCreatureInfo()->spell_list_id);
@@ -157,6 +163,14 @@ class CreatureAI
         virtual void OnRemoveFromWorld() {}
 
         virtual uint32 GetData(uint32 /*type*/) { return 0; }
+
+        // cmangos puts ReactState on AI; Penqle on Creature.
+        // Forward through m_creature.
+        ReactStates GetReactState() const;
+        void SetReactState(ReactStates st);
+        bool HasReactState(ReactStates st) const;
+        // IsPreventingDeath: cmangos has it (boss invuln check). Stub returns false.
+        bool IsPreventingDeath() const { return false; }
 
         virtual void InformGuid(const ObjectGuid /*guid*/, uint32 /*type*/=0) {}
         virtual void DoAction(const uint32 /*type*/=0) {}
@@ -273,6 +287,10 @@ class CreatureAI
 
         // Does the creature melee attack.
         bool IsMeleeAttackEnabled() const { return m_bMeleeAttack; }
+
+        // bot's healer logic checks if a creature is a ranged caster.
+        // cmangos has a flag set per-AI; Penqle has none. Default to false (treat as melee).
+        virtual bool IsRangedUnit() const { return false; }
 
         // Triggers an alert when a Unit moves near stealth detection range.
         virtual void OnMoveInStealth(Unit* who);

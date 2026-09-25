@@ -15,30 +15,69 @@
  */
 
 #include "ARC4.h"
+#include "Log.h"
 
 #if defined(OPENSSL_VERSION_MAJOR) && (OPENSSL_VERSION_MAJOR >= 3)
 #include <openssl/provider.h>
 #endif
 
-ARC4::ARC4(uint8 len) : m_ctx()
+namespace
 {
+    // RC4 moved into the legacy provider with OpenSSL 3.0. If that module cannot
+    // be found, EVP_rc4() quietly returns nullptr, EVP_EncryptInit_ex leaves the
+    // context without a cipher, and EVP_CIPHER_CTX_set_key_length then reads
+    // through it - an access violation on the very first login attempt, with
+    // nothing in the log to explain it. Both return values used to be discarded.
+    EVP_CIPHER const* GetRC4Cipher()
+    {
 #if defined(OPENSSL_VERSION_MAJOR) && (OPENSSL_VERSION_MAJOR >= 3)
-    OSSL_PROVIDER_load(NULL, "legacy");
+        static bool const legacyReported = []()
+        {
+            if (!OSSL_PROVIDER_load(nullptr, "legacy"))
+                sLog.outError("OpenSSL 3 is in use but its legacy provider could not be loaded. "
+                              "RC4 lives there, so session encryption cannot be set up and no client "
+                              "will get past the login. Point OPENSSL_MODULES at the directory holding "
+                              "legacy.dll (legacy.so on unix), or link against OpenSSL 1.1.");
+            return true;
+        }();
+        (void)legacyReported;
 #endif
 
+        EVP_CIPHER const* cipher = EVP_rc4();
+        if (!cipher)
+            sLog.outError("EVP_rc4() returned nothing - session encryption is unavailable.");
+
+        return cipher;
+    }
+
+    // Shared by both constructors: without a cipher the context stays empty
+    // rather than half-initialised, so later calls fail instead of crashing.
+    void SetUpContext(EVP_CIPHER_CTX* ctx, uint8 len)
+    {
+        EVP_CIPHER const* cipher = GetRC4Cipher();
+        if (!cipher)
+            return;
+
+        if (!EVP_EncryptInit_ex(ctx, cipher, nullptr, nullptr, nullptr))
+        {
+            sLog.outError("EVP_EncryptInit_ex failed for RC4 - session encryption is unavailable.");
+            return;
+        }
+
+        EVP_CIPHER_CTX_set_key_length(ctx, len);
+    }
+}
+
+ARC4::ARC4(uint8 len) : m_ctx()
+{
     m_ctx = EVP_CIPHER_CTX_new();
-    EVP_EncryptInit_ex(m_ctx, EVP_rc4(), nullptr, nullptr, nullptr);
-    EVP_CIPHER_CTX_set_key_length(m_ctx, len);
+    SetUpContext(m_ctx, len);
 }
 
 ARC4::ARC4(uint8 *seed, uint8 len) : m_ctx()
 {
-#if defined(OPENSSL_VERSION_MAJOR) && (OPENSSL_VERSION_MAJOR >= 3)
-    OSSL_PROVIDER_load(NULL, "legacy");
-#endif
     m_ctx = EVP_CIPHER_CTX_new();
-    EVP_EncryptInit_ex(m_ctx, EVP_rc4(), nullptr, nullptr, nullptr);
-    EVP_CIPHER_CTX_set_key_length(m_ctx, len);
+    SetUpContext(m_ctx, len);
     EVP_EncryptInit_ex(m_ctx, nullptr, nullptr, seed, nullptr);
 }
 

@@ -201,22 +201,6 @@ bool ItemCanGoIntoBag(ItemPrototype const* pProto, ItemPrototype const* pBagProt
                     if (pProto->BagFamily != BAG_FAMILY_ENGINEERING_SUPP)
                         return false;
                     return true;
-                case ITEM_SUBCLASS_MINING_CONTAINER:
-                    if (pProto->BagFamily != BAG_FAMILY_MINING)
-                        return false;
-                    return true;
-                case ITEM_SUBCLASS_LEATHERWORKING_CONTAINER:
-                    if (pProto->BagFamily != BAG_FAMILY_LEATHER)
-                        return false;
-                    return true;
-                case ITEM_SUBCLASS_RATIONS_CONTAINER:
-                    if (pProto->BagFamily != BAG_FAMILY_MEAT)
-                        return false;
-                    return true;
-                case ITEM_SUBCLASS_FISHING_CONTAINER:
-                    if (pProto->BagFamily != BAG_FAMILY_FISH)
-                        return false;
-                    return true;
             }
             return false;
         case ITEM_CLASS_QUIVER:
@@ -849,8 +833,9 @@ void Item::AddToUpdateQueueOf(Player* player)
         player = GetOwner();
         if (!player)
         {
-            sLog.outError("Item::AddToUpdateQueueOf - %s current owner (%s) not in world!",
-                          GetGuidStr().c_str(), GetOwnerGuid().GetString().c_str());
+            if (!GetOwnerGuid().IsEmpty())
+                sLog.outError("Item::AddToUpdateQueueOf - %s current owner (%s) not in world!",
+                              GetGuidStr().c_str(), GetOwnerGuid().GetString().c_str());
             return;
         }
     }

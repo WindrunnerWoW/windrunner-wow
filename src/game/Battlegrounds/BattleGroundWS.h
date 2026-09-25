@@ -44,7 +44,10 @@ enum BG_WS_SpellId
     BG_WS_SPELL_WARSONG_FLAG            = 23333,
     BG_WS_SPELL_WARSONG_FLAG_DROPPED    = 23334,
     BG_WS_SPELL_SILVERWING_FLAG         = 23335,
-    BG_WS_SPELL_SILVERWING_FLAG_DROPPED = 23336
+    BG_WS_SPELL_SILVERWING_FLAG_DROPPED = 23336,
+    // Stacking +10% damage taken, applied by the flag aura itself every 60s
+    // (23333/23335 effect 3). Cleared on capture, see EventPlayerCapturedFlag.
+    BG_WS_SPELL_FOCUSED_ASSAULT         = 44094
 };
 
 enum BG_WS_WorldStates
@@ -67,6 +70,15 @@ enum BG_WS_FlagState
     BG_WS_FLAG_STATE_ON_GROUND    = 3
 };
 
+// IDs 769-772 are the standard vanilla WorldSafeLocs.dbc IDs for these
+// graveyards, but this server's WorldSafeLocs.dbc (extracted from the
+// Turtle WoW 1.18 client) only has 174 entries total and doesn't include
+// them at all - sWorldSafeLocsStore.LookupEntry() silently returned NULL
+// for every single WSG death, confirmed live 2026-07-27/28 (players stuck
+// at their corpse instead of teleporting to the graveyard on release
+// spirit). The same graveyard locations DO exist in this DBC, just under
+// different IDs (97-100) - matched by cross-referencing map_id=489 entries'
+// coordinates against the known Alliance/Horde base positions.
 enum BG_WS_Graveyards
 {
     WS_GRAVEYARD_FLAGROOM_ALLIANCE = 97,
@@ -131,6 +143,10 @@ class BattleGroundWS : public BattleGround
         /* BG Flags */
         ObjectGuid GetAllianceFlagPickerGuid() const{ return m_FlagKeepers[BG_TEAM_ALLIANCE]; }
         ObjectGuid GetHordeFlagPickerGuid() const   { return m_FlagKeepers[BG_TEAM_HORDE]; }
+        // cmangos generic accessor; team_index 0=alliance, 1=horde.
+        ObjectGuid GetFlagCarrierGuid(uint32 team_index = 0) const override {
+            return team_index < BG_TEAMS_COUNT ? m_FlagKeepers[team_index] : ObjectGuid();
+        }
         void SetAllianceFlagPicker(ObjectGuid guid) { m_FlagKeepers[BG_TEAM_ALLIANCE] = guid; }
         void SetHordeFlagPicker(ObjectGuid guid)    { m_FlagKeepers[BG_TEAM_HORDE] = guid; }
         void ClearAllianceFlagPicker()              { m_FlagKeepers[BG_TEAM_ALLIANCE].Clear(); }

@@ -916,8 +916,37 @@ class WorldObject : public Object
         float GetDistance3dToCenter(Position const& position) const { return GetDistance(position.x, position.y, position.z, SizeFactor::None); }
         float GetDistance(WorldObject const* obj, SizeFactor distcalc = SizeFactor::BoundingRadius) const;
         float GetDistance(float x, float y, float z, SizeFactor distcalc = SizeFactor::BoundingRadius) const;
+        // bot's signature is (target, bool is3D, DistanceCalculation calc).
+        // Penqle has (target, SizeFactor); ignore the bool, ignore the calc enum (taken as int because
+        // DistanceCalculation enum is defined in the bot's shim header, not visible here).
+        float GetDistance(WorldObject const* obj, bool /*is3D*/, int /*distance_calc*/) const { return GetDistance(obj); }
         float GetDistance(WorldLocation const& position, SizeFactor distcalc = SizeFactor::BoundingRadius) const { return GetDistance(position.x, position.y, position.z, distcalc); }
         float GetDistance(Position const& position, SizeFactor distcalc = SizeFactor::BoundingRadius) const { return GetDistance(position.x, position.y, position.z, distcalc); }
+        // IsFriend/IsEnemy on WorldObject (forward to Unit dispatch).
+        bool IsFriend(WorldObject const* target) const;  // out-of-line in Object.cpp
+        bool IsEnemy(WorldObject const* target) const;
+        // bot passes int (DistanceCalculation enum).
+        // Map DIST_CALC_NONE/BOUNDING_RADIUS/COMBAT_REACH (cmangos) to SizeFactor (Penqle).
+        // cmangos contract: DIST_CALC_NONE returns the SQUARED distance (callers sqrt() it),
+        // while BOUNDING_RADIUS/COMBAT_REACH return the linear distance. Penqle's SizeFactor
+        // overloads are always linear, so square the result for the NONE case to match.
+        float GetDistance(float x, float y, float z, int distcalc) const {
+            float d = GetDistance(x, y, z, distcalc == 0 ? SizeFactor::None : (distcalc == 2 ? SizeFactor::CombatReach : SizeFactor::BoundingRadius));
+            return distcalc == 0 ? d * d : d;
+        }
+        float GetDistance(WorldObject const* obj, int distcalc) const {
+            float d = GetDistance(obj, distcalc == 0 ? SizeFactor::None : (distcalc == 2 ? SizeFactor::CombatReach : SizeFactor::BoundingRadius));
+            return distcalc == 0 ? d * d : d;
+        }
+        // GetDistance2d 3-arg form taking int.
+        float GetDistance2d(float x, float y, int distcalc) const {
+            float d = GetDistance2d(x, y, distcalc == 0 ? SizeFactor::None : (distcalc == 2 ? SizeFactor::CombatReach : SizeFactor::BoundingRadius));
+            return distcalc == 0 ? d * d : d;
+        }
+        float GetDistance2d(WorldObject const* obj, int distcalc) const {
+            float d = GetDistance2d(obj, distcalc == 0 ? SizeFactor::None : (distcalc == 2 ? SizeFactor::CombatReach : SizeFactor::BoundingRadius));
+            return distcalc == 0 ? d * d : d;
+        }
         float GetDistance2d(WorldObject const* obj, SizeFactor distcalc = SizeFactor::BoundingRadius) const;
         float GetDistance2d(float x, float y, SizeFactor distcalc = SizeFactor::BoundingRadius) const;
         float GetDistance2d(WorldLocation const& position, SizeFactor distcalc = SizeFactor::BoundingRadius) const { return GetDistance2d(position.x, position.y, distcalc); }
@@ -992,6 +1021,39 @@ class WorldObject : public Object
         bool IsWalking() const { return m_movementInfo.HasMovementFlag(MOVEFLAG_WALK_MODE); }
         bool IsWalkingBackward() const { return m_movementInfo.HasMovementFlag(MOVEFLAG_BACKWARD); }
         bool IsMoving() const { return m_movementInfo.HasMovementFlag(MOVEFLAG_MASK_MOVING); }
+        // AzerothCore spellings, for module code written against that core.
+        bool isMoving() const { return IsMoving(); }
+        float GetExactDist2d(float px, float py) const
+        {
+            float const dx = GetPositionX() - px, dy = GetPositionY() - py;
+            return std::sqrt(dx*dx + dy*dy);
+        }
+        float GetExactDist(float px, float py, float pz) const
+        {
+            float const dx = GetPositionX() - px, dy = GetPositionY() - py, dz = GetPositionZ() - pz;
+            return std::sqrt(dx*dx + dy*dy + dz*dz);
+        }
+        float GetExactDist2d(Position const& p) const { return GetExactDist2d(p.x, p.y); }
+        float GetExactDist(Position const& p) const { return GetExactDist(p.x, p.y, p.z); }
+        float GetExactDist2d(Position const* p) const { return GetExactDist2d(p->x, p->y); }
+        float GetExactDist(Position const* p) const { return GetExactDist(p->x, p->y, p->z); }
+        float GetExactDist2d(WorldObject const* o) const { return GetExactDist2d(o->GetPositionX(), o->GetPositionY()); }
+        float GetExactDistSq(WorldObject const* o) const { float const d = GetExactDist(o); return d * d; }
+        float GetExactDistSq(float px, float py, float pz) const { float const d = GetExactDist(px, py, pz); return d * d; }
+        // AzerothCore appends incOwnRadius/incTargetRadius; this core's check
+        // already includes both radii, which is also that call's default.
+        bool IsWithinDist(WorldObject const* obj, float dist, bool is3D, bool /*incOwnRadius*/, bool /*incTargetRadius*/) const
+        { return IsWithinDist(obj, dist, is3D); }
+        // Dynamic-object identity, AzerothCore spellings.
+        bool IsDynamicObject() const { return GetTypeId() == TYPEID_DYNAMICOBJECT; }
+        class DynamicObject* ToDynObject() { return IsDynamicObject() ? reinterpret_cast<DynamicObject*>(this) : nullptr; }
+        DynamicObject const* ToDynObject() const { return IsDynamicObject() ? reinterpret_cast<DynamicObject const*>(this) : nullptr; }
+        float GetExactDist(WorldObject const* o) const { return GetExactDist(o->GetPositionX(), o->GetPositionY(), o->GetPositionZ()); }
+        // AzerothCore prints objects for debug output; here it is name and guid.
+        std::string ToString() const { return std::string(GetName()) + " (" + GetObjectGuid().GetString() + ")"; }
+        // Phasing arrived with The Burning Crusade. Everything on this core
+        // shares one phase, so ported phase comparisons always match.
+        uint32 GetPhaseMask() const { return 1; }
         bool IsSwimming() const { return m_movementInfo.HasMovementFlag(MOVEFLAG_SWIMMING); }
         bool IsMovingButNotWalking() const { return IsMoving() && !(IsWalking() || IsWalkingBackward()); }
 
@@ -1011,6 +1073,8 @@ class WorldObject : public Object
 
         virtual void SendMessageToSetInRange(WorldPacket *data, float dist, bool self) const;
         void SendMessageToSetExcept(WorldPacket *data, Player const* skipped_receiver) const;
+        // bot passes by reference.
+        void SendMessageToSetExcept(WorldPacket& data, Player const* skipped_receiver) const { SendMessageToSetExcept(&data, skipped_receiver); }
         void DirectSendPublicValueUpdate(uint32 index, uint32 count = 1);
         void DirectSendPublicValueUpdate(UpdateMask& updateMask);
         void DirectSendPublicValueUpdate(std::initializer_list<uint32> indexes);
@@ -1100,7 +1164,21 @@ class WorldObject : public Object
         GameObject* FindRandomGameObject(uint32 entry, float range) const;
         Player* FindNearestPlayer(float range) const;
         void GetGameObjectListWithEntryInGrid(std::list<GameObject*>& lList, uint32 uiEntry, float fMaxSearchRange) const;
+        // AzerothCore set form, one visit per entry - cold callers, two or
+        // three entries.
+        void GetGameObjectListWithEntryInGrid(std::list<GameObject*>& lList, std::vector<uint32> const& entries, float fMaxSearchRange) const
+        {
+            for (uint32 entry : entries)
+                GetGameObjectListWithEntryInGrid(lList, entry, fMaxSearchRange);
+        }
         void GetCreatureListWithEntryInGrid(std::list<Creature*>& lList, uint32 uiEntry, float fMaxSearchRange) const;
+        // AzerothCore also takes a set of entries in one sweep. One grid visit
+        // per entry here - the callers pass two or three, on cold paths.
+        void GetCreatureListWithEntryInGrid(std::list<Creature*>& lList, std::vector<uint32> const& entries, float fMaxSearchRange) const
+        {
+            for (uint32 entry : entries)
+                GetCreatureListWithEntryInGrid(lList, entry, fMaxSearchRange);
+        }
         void GetAlivePlayerListInRange(WorldObject const* pSource, std::list<Player*>& lList, float fMaxSearchRange) const;
 
         bool isActiveObject() const { return m_isActiveObject || m_viewPoint.hasViewers(); }
@@ -1273,6 +1351,10 @@ virtual uint32 GetLevel() const = 0;
 
         // Event handler
         EventProcessor m_Events;
+    public:
+        EventProcessor& GetEvents() { return m_Events; }
+        // Reference alias allows bot's m_events.AddEvent style; immobile but WorldObject isn't copyable.
+    protected:
 
 		inline void SetExclusiveVisibleFor(WorldObject* visibleFor)
 		{
@@ -1311,22 +1393,21 @@ virtual uint32 GetLevel() const = 0;
 
         std::array<Spell*, CURRENT_MAX_SPELL> m_currentSpells{};
         uint32 m_castCounter = 0;                           // count casts chain of triggered spells for prevent infinity cast crashes
-    private:
-        // Error traps for some wrong args using
-        // this will catch and prevent build for any cases when all optional args skipped and instead triggered used non boolean type
-        // no bodies expected for this declarations
+    public:
+        // these were "error traps" to catch non-bool triggered.
+        // Bot module legitimately passes uint32 (cmangos style); make them public and bool-convert.
         template <typename TR>
-        SpellCastResult CastSpell(Unit* Victim, uint32 spell, TR triggered);
+        SpellCastResult CastSpell(Unit* Victim, uint32 spell, TR triggered) { return CastSpell(Victim, spell, (bool)(triggered != 0)); }
         template <typename TR>
-        SpellCastResult CastSpell(Unit* Victim, SpellEntry const* spell, TR triggered);
+        SpellCastResult CastSpell(Unit* Victim, SpellEntry const* spell, TR triggered) { return CastSpell(Victim, spell, (bool)(triggered != 0)); }
         template <typename TR>
-        void CastCustomSpell(Unit* Victim, uint32 spell, int32 const* bp0, int32 const* bp1, int32 const* bp2, TR triggered);
+        void CastCustomSpell(Unit* Victim, uint32 spell, int32 const* bp0, int32 const* bp1, int32 const* bp2, TR triggered) { CastCustomSpell(Victim, spell, bp0, bp1, bp2, (bool)(triggered != 0)); }
         template <typename SP, typename TR>
-        void CastCustomSpell(Unit* Victim, SpellEntry const* spell, int32 const* bp0, int32 const* bp1, int32 const* bp2, TR triggered);
+        void CastCustomSpell(Unit* Victim, SpellEntry const* spell, int32 const* bp0, int32 const* bp1, int32 const* bp2, TR triggered) { CastCustomSpell(Victim, spell, bp0, bp1, bp2, (bool)(triggered != 0)); }
         template <typename TR>
-        SpellCastResult CastSpell(float x, float y, float z, uint32 spell, TR triggered);
+        SpellCastResult CastSpell(float x, float y, float z, uint32 spell, TR triggered) { return CastSpell(x, y, z, spell, (bool)(triggered != 0)); }
         template <typename TR>
-        SpellCastResult CastSpell(float x, float y, float z, SpellEntry const* spell, TR triggered);
+        SpellCastResult CastSpell(float x, float y, float z, SpellEntry const* spell, TR triggered) { return CastSpell(x, y, z, spell, (bool)(triggered != 0)); }
 };
 
 // Helper functions to cast between different Object pointers. Useful when unsure that your object* is valid at all.

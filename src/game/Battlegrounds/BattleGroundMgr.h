@@ -24,7 +24,6 @@
 
 #include <vector>
 #include <mutex>
-#include <type_traits>
 
 #include "Common.h"
 #include "Policies/Singleton.h"
@@ -84,8 +83,6 @@ enum BattleGroundGroupJoinStatus
 class BattleGround;
 class BattleGroundQueue
 {
-    // Queue containers and GroupQueueInfo lifetime are owned by the world
-    // thread. Cross-thread producers must enqueue work through BattleGroundMgr.
     public:
         BattleGroundQueue();
         ~BattleGroundQueue();
@@ -105,27 +102,6 @@ class BattleGroundQueue
         void PlayerLoggedOut(ObjectGuid guid);
         bool PlayerLoggedIn(Player* player);
         bool IsAllQueuesEmpty(BattleGroundBracketId bracket_id);
-
-        // Generic read-only demand snapshot for modules. Copy-only value DTO, no Player pointers,
-        // no private map exposure. Callers must run on the world thread, which owns queue mutation.
-        struct QueuedParticipantInfo
-        {
-            ObjectGuid guid;
-            Team team = TEAM_NONE;
-            BattleGroundTypeId bgTypeId = BATTLEGROUND_TYPE_NONE;
-            BattleGroundBracketId bracketId = BG_BRACKET_ID_NONE;
-            uint32 joinTime = 0;
-            uint32 invitedInstanceId = 0;
-            bool isInvited = false;
-            bool online = false;
-            // For transport/headless distinction, module uses the guid for normal lookup:
-            // ObjectAccessor::FindPlayer(guid) -> GetSession() -> HasNetworkTransport()/IsHeadless() when available.
-            // No transport-specific field is baked into the DTO at this baseline; the guid identity suffices
-            // and keeps the API generic and implementation-neutral.
-        };
-
-        // Copy-only world-thread snapshot; core retains ownership. If bracketId == BG_BRACKET_ID_NONE, all brackets.
-        std::vector<QueuedParticipantInfo> GetQueuedParticipants(BattleGroundBracketId bracketId = BG_BRACKET_ID_NONE) const;
 
         //mutex that should not allow changing private data, nor allowing to update Queue during private data change.
         std::recursive_mutex m_Lock;
@@ -246,6 +222,10 @@ class BattleGroundMgr
         BattleGround* GetBattleGroundTemplate(BattleGroundTypeId bgTypeId);
         BattleGround* CreateNewBattleGround(BattleGroundTypeId bgTypeId, BattleGroundBracketId bracket_id);
 
+        // bot uses this helper.
+        // Returns the bracket id matching the player's level for a given BG template.
+        BattleGroundBracketId GetBattleGroundBracketIdFromLevel(BattleGroundTypeId bgTypeId, uint32 level);
+
         uint32 CreateBattleGround(BattleGroundTypeId bgTypeId, uint32 minPlayersPerTeam, uint32 maxPlayersPerTeam, uint32 levelMin, uint32 levelMax, uint32 allianceWinSpell, uint32 allianceLoseSpell, uint32 hordeWinSpell, uint32 hordeLoseSpell, char const* battleGroundName, uint32 mapID, float team1StartLocX, float team1StartLocY, float team1StartLocZ, float team1StartLocO, float team2StartLocX, float team2StartLocY, float team2StartLocZ, float team2StartLocO, uint32 playerSkinReflootId);
 
         void AddBattleGround(uint32 InstanceID, BattleGroundTypeId bgTypeId, BattleGround* BG);
@@ -270,16 +250,7 @@ class BattleGroundMgr
 
         BGFreeSlotQueueType BGFreeSlotQueue[MAX_BATTLEGROUND_TYPE_ID];
 
-        // Queue state is owned by the world thread. Map-thread producers may only
-        // enqueue value-only requests through these methods.
         void ScheduleQueueUpdate(BattleGroundQueueTypeId bgQueueTypeId, BattleGroundTypeId bgTypeId, BattleGroundBracketId bracket_id);
-        // Generic read-only world-thread demand snapshot for modules. Delegates to the per-queue snapshot;
-        // the returned DTOs do not expose queue-owned pointers or maps.
-        std::vector<BattleGroundQueue::QueuedParticipantInfo> GetQueuedParticipants(BattleGroundQueueTypeId queueTypeId, BattleGroundBracketId bracketId = BG_BRACKET_ID_NONE) const;
-        void ScheduleQueueInviteReminder(ObjectGuid playerGuid, uint32 bgInstanceGuid, BattleGroundTypeId bgTypeId, uint32 removeTime);
-        void ScheduleQueueInviteRemoval(ObjectGuid playerGuid, uint32 bgInstanceGuid, BattleGroundTypeId bgTypeId, BattleGroundQueueTypeId bgQueueTypeId, uint32 removeTime);
-        void ScheduleQueueBracketCleanup(ObjectGuid playerGuid, BattleGroundQueueTypeId bgQueueTypeId, BattleGroundTypeId bgTypeId, BattleGroundBracketId oldBracketId);
-        void ScheduleArenaQueueJoin(ObjectGuid playerGuid, bool queuedAsGroup);
         uint32 GetPrematureFinishTime() const;
 
         void ToggleTesting();
@@ -328,6 +299,8 @@ class BattleGroundMgr
 
         static BattleGroundQueueTypeId BGQueueTypeId(BattleGroundTypeId bgTypeId);
         static BattleGroundTypeId BGTemplateId(BattleGroundQueueTypeId bgQueueTypeId);
+        // bot uses BgTemplateId (lowercase g); Penqle has BGTemplateId.
+        static BattleGroundTypeId BgTemplateId(BattleGroundQueueTypeId bgQueueTypeId) { return BGTemplateId(bgQueueTypeId); }
 
         static HolidayIds BGTypeToWeekendHolidayId(BattleGroundTypeId bgTypeId);
         static BattleGroundTypeId WeekendHolidayIdToBGType(HolidayIds holiday);
@@ -336,37 +309,7 @@ class BattleGroundMgr
         void PlayerLoggedIn(Player* player);
         void PlayerLoggedOut(Player* player);
     private:
-        enum class QueueRequestType : uint8
-        {
-            InviteReminder,
-            InviteRemoval,
-            PlayerLogout,
-            BracketCleanup,
-            ArenaJoin
-        };
-
-        struct QueueRequest
-        {
-            QueueRequestType Type;
-            ObjectGuid PlayerGuid;
-            uint32 BgInstanceGuid;
-            BattleGroundTypeId BgTypeId;
-            BattleGroundQueueTypeId BgQueueTypeId;
-            uint32 RemoveTime;
-            BattleGroundBracketId BracketId;
-            bool QueuedAsGroup = false;
-        };
-
-        void ScheduleQueueRequest(QueueRequest const& request);
-        void ProcessQueueRequest(QueueRequest const& request);
-        void ProcessQueueInviteReminder(QueueRequest const& request);
-        void ProcessQueueInviteRemoval(QueueRequest const& request);
-        void ProcessQueuePlayerLogout(QueueRequest const& request);
-        void ProcessQueueBracketCleanup(QueueRequest const& request);
-        void ProcessQueueArenaJoin(QueueRequest const& request);
-
-        // Protects only the cross-thread request mailboxes, never queue state.
-        std::mutex m_QueueMailboxMutex;
+        std::mutex SchedulerLock;
         BattleMastersMap mBattleMastersMap;
         CreatureBattleEventIndexesMap m_CreatureBattleEventIndexMap;
         GameObjectBattleEventIndexesMap m_GameObjectBattleEventIndexMap;
@@ -375,7 +318,6 @@ class BattleGroundMgr
         std::mutex m_BattleGroundsMutex;
         BattleGroundSet m_BattleGrounds[MAX_BATTLEGROUND_TYPE_ID];
         std::vector<uint64> m_QueueUpdateScheduler;
-        std::vector<QueueRequest> m_QueueRequests;
         typedef std::set<uint32> ClientBattleGroundIdSet;
         ClientBattleGroundIdSet m_ClientBattleGroundIds[MAX_BATTLEGROUND_TYPE_ID][MAX_BATTLEGROUND_BRACKETS]; //the instanceids just visible for the client
         bool   m_Testing;
@@ -383,9 +325,5 @@ class BattleGroundMgr
 };
 
 extern BattleGroundMgr sBattleGroundMgr;
-
-// Focused static assertions for the generic read-only demand DTO.
-static_assert(std::is_copy_constructible<BattleGroundQueue::QueuedParticipantInfo>::value, "QueuedParticipantInfo must be copy-constructible");
-static_assert(std::is_default_constructible<BattleGroundQueue::QueuedParticipantInfo>::value, "QueuedParticipantInfo must be default-constructible");
 
 #endif

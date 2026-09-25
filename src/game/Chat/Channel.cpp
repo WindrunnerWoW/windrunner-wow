@@ -20,7 +20,6 @@
  */
 
 #include "Channel.h"
-#include "ScriptObjects.h"
 #include "ObjectMgr.h"
 #include "World.h"
 #include "SocialMgr.h"
@@ -29,7 +28,10 @@
 #include "Config/Config.h"
 #include "Util.h"
 #include "ChannelBroadcaster.h"
-#include "ObjectAccessor.h"
+#include "ChannelMgr.h"
+
+#include <algorithm>
+#include <cctype>
 
 Channel::Channel(std::string const& name, Team InTeam)
     : m_area_dependant(true), m_announce(true), m_moderate(false), m_levelRestricted(true), m_name(name), m_flags(0), m_securityLevel(0), m_channelId(0),
@@ -69,35 +71,41 @@ Channel::Channel(std::string const& name, Team InTeam)
         else                                                // for all other channels
             m_flags |= CHANNEL_FLAG_NOT_LFG;
     }
-    else                                                    // it's custom channel
+    else if (ChannelMgr::IsReservedChannelName(name))
     {
-        if (!normalizePlayerName(m_name, (size_t)128))
-        {
-            m_name = "INVALIDCHANNEL";
-            m_announce = false;
-        }
-        // Disable join/left announcements for Russians & Germans:
-        if (m_name == u8"Ru" || m_name == u8"Welt" || m_name == u8"China")
+        std::string lowerName = m_name;
+        std::transform(lowerName.begin(), lowerName.end(), lowerName.begin(),
+            [](unsigned char c) { return char(std::tolower(c)); });
+
+        if (lowerName == "ru" || lowerName == "welt" || lowerName == "china")
         {
             m_flags |= CHANNEL_FLAG_NATIONAL;
             m_announce = false;
-            return;
         }
-        else
+        else if (lowerName == "world" || lowerName == "english")
         {
-            m_flags |= CHANNEL_FLAG_CUSTOM;
             m_levelRestricted = false;
-        }
-        if (m_name == u8"World" || m_name == u8"English")
-        {
             m_flags |= CHANNEL_FLAG_GENERAL;
-            m_flags &= ~CHANNEL_FLAG_CUSTOM;
             m_announce = false;
         }
+        else
+            m_levelRestricted = false;
+    }
+    else                                                    // it's custom channel
+    {
+        if (!normalizePlayerName(m_name, CHANNEL_MAX_NAME_LENGTH))
+        {
+            m_name = "INVALIDCHANNEL";
+            m_announce = false;
+            return;
+        }
+
+        m_flags |= CHANNEL_FLAG_CUSTOM;
+        m_levelRestricted = false;
     }
 }
 
-void Channel::Join(ObjectGuid guid, const char *password, bool checkPassword)
+bool Channel::Join(ObjectGuid guid, const char *password, bool checkPassword)
 {
     WorldPacket data;
     if (IsOn(guid))
@@ -107,21 +115,21 @@ void Channel::Join(ObjectGuid guid, const char *password, bool checkPassword)
             MakePlayerAlreadyMember(&data, guid);
             SendToOne(&data, guid);
         }
-        return;
+        return true;
     }
 
     if (IsBanned(guid))
     {
         MakeBanned(&data);
         SendToOne(&data, guid);
-        return;
+        return false;
     }
 
     if (checkPassword && m_password.length() > 0 && strcmp(password, m_password.c_str()) != 0)
     {
         MakeWrongPassword(&data);
         SendToOne(&data, guid);
-        return;
+        return false;
     }
 
     PlayerPointer pPlayer = GetPlayer(guid);
@@ -130,13 +138,21 @@ void Channel::Join(ObjectGuid guid, const char *password, bool checkPassword)
     {
         MakeWrongPassword(&data);
         SendToOne(&data, guid);
-        return;
+        return false;
+    }
+
+    if (HasFlag(CHANNEL_FLAG_CUSTOM) && !ChannelMgr::CanPlayerJoinCustomChannel(guid))
+    {
+        MakeInvalidName(&data);
+        SendToOne(&data, guid);
+
+        return false;
     }
 
     if (pPlayer && pPlayer->ToPlayer())
     {
         if (pPlayer->GetGuildId() && (GetFlags() == 0x38))
-            return;
+            return false;
 
         pPlayer->ToPlayer()->JoinedChannel(this);
     }
@@ -164,6 +180,8 @@ void Channel::Join(ObjectGuid guid, const char *password, bool checkPassword)
         SetOwner(guid, (m_players.size() > 1));
         m_players[guid].SetModerator(true);
     }
+
+    return true;
 }
 
 void Channel::Leave(ObjectGuid guid, bool send)
@@ -644,25 +662,15 @@ void Channel::Moderate(ObjectGuid guid)
     SendToAll(&data);
 }
 
-Channel::SayRefusal Channel::CheckSay(ObjectGuid guid, bool skipCheck)
+// Player* overload forwards to ObjectGuid form.
+void Channel::Say(Player const* player, const char* what, uint32 lang, bool skipCheck)
 {
-    if (skipCheck)
-        return SAY_OK;
+    if (player) Say(player->GetObjectGuid(), what, lang, skipCheck);
+}
 
-    if (!IsOn(guid))
-        return SAY_NOT_MEMBER;
-
-    PlayerPointer pPlayer = GetPlayer(guid);
-    uint32 const sec = pPlayer ? pPlayer->GetSession()->GetSecurity() : 0;
-    uint8  const honor_rank = pPlayer ? pPlayer->ToPlayer()->GetHonorMgr().GetCurrentHonorRank() : 0;
-
-    if (m_players[guid].IsMuted() || ((GetChannelId() == CHANNEL_ID_WORLD_DEFENSE) && (honor_rank < 15)))
-        return SAY_MUTED;
-
-    if (m_moderate && !m_players[guid].IsModerator() && sec < SEC_OBSERVER)
-        return SAY_NOT_MODERATOR;
-
-    return SAY_OK;
+bool Channel::Join(Player const* player, const char* password)
+{
+    return player && Join(player->GetObjectGuid(), password);
 }
 
 void Channel::Say(ObjectGuid guid, const char *text, uint32 lang, bool skipCheck)
@@ -671,35 +679,38 @@ void Channel::Say(ObjectGuid guid, const char *text, uint32 lang, bool skipCheck
         return;
 
     PlayerPointer pPlayer = GetPlayer(guid);
+    uint32 const sec = pPlayer ? pPlayer->GetSession()->GetSecurity() : 0;
     uint8  const honor_rank = pPlayer ? pPlayer->ToPlayer()->GetHonorMgr().GetCurrentHonorRank() : 0;
 
-    switch (CheckSay(guid, skipCheck))
+    if (!skipCheck)
     {
-        case SAY_NOT_MEMBER:
+        if (!IsOn(guid))
         {
             WorldPacket data;
             MakeNotMember(&data);
             SendToOne(&data, guid);
             return;
         }
-        case SAY_MUTED:
+
+        if (m_players[guid].IsMuted() || ((GetChannelId() == CHANNEL_ID_WORLD_DEFENSE) && (honor_rank < 15)))
         {
             WorldPacket data;
             MakeMuted(&data);
             SendToOne(&data, guid);
             return;
         }
-        case SAY_NOT_MODERATOR:
+
+
+        if (m_moderate && !m_players[guid].IsModerator() && sec < SEC_OBSERVER)
         {
             WorldPacket data;
             MakeNotModerator(&data);
             SendToOne(&data, guid);
             return;
         }
-        case SAY_OK:
-            break;
     }
 
+    
     if (pPlayer && IsDefenseChannel(GetChannelId()))
         lang = sChrRacesStore.LookupEntry(pPlayer->GetRace())->baseLanguage;
     else if (sWorld.getConfig(CONFIG_BOOL_ALLOW_TWO_SIDE_INTERACTION_CHANNEL))
@@ -709,6 +720,11 @@ void Channel::Say(ObjectGuid guid, const char *text, uint32 lang, bool skipCheck
     WorldPacket data;
     ChatHandler::BuildChatPacket(data, CHAT_MSG_CHANNEL, text, Language(lang), pPlayer ? pPlayer->GetChatTag() : 0, guid, nullptr, ObjectGuid(), "", m_name.c_str(), honor_rank);
 
+    bool isModerator = false;
+    PlayerList::const_iterator member = m_players.find(guid);
+    if (member != m_players.end())
+        isModerator = member->second.IsModerator();
+
     if (!skipCheck && pPlayer &&
         (pPlayer->GetSession()->IsFingerprintBanned() ||
             ((pPlayer->GetSession()->GetAccountFlags() & ACCOUNT_FLAG_MUTED_FROM_PUBLIC_CHANNELS) && pPlayer->GetSession()->GetAccountMaxLevel() < sWorld.getConfig(CONFIG_UINT32_PUB_CHANS_MUTE_VANISH_LEVEL))))
@@ -717,43 +733,15 @@ void Channel::Say(ObjectGuid guid, const char *text, uint32 lang, bool skipCheck
     }
     else
     {
-        SendToAll(&data, (!skipCheck && !m_players[guid].IsModerator()) ? guid : ObjectGuid());
+        SendToAll(&data, (!skipCheck && !isModerator) ? guid : ObjectGuid());
     }
 }
 
 void Channel::AsyncSay(ObjectGuid guid, const char* what, uint32 lang /*= LANG_UNIVERSAL*/, bool skipCheck /*= false*/)
 {
-    // Said by somebody with no client. Taken here, on the caller's thread, rather than in the
-    // broadcaster that consumes the queue on another one.
-    ScriptRegistry<WorldScript>::ForEachEnabledHook(WORLDHOOK_ON_CHANNEL_BROADCAST,
-        [&](WorldScript* s) { s->OnChannelBroadcast(guid.GetCounter(), GetName().c_str(), what); });
-
-    // The PlayerScript hook belongs here too, on the caller's thread: the broadcaster
-    // delivers on its own thread, and module handlers that touch world state must not
-    // run there. Same validation and delivery guards as Say(): a sender who is not on
-    // the channel, muted there, or not allowed to speak while it is moderated is refused
-    // before any hook fires (Say() answers him with the notification on delivery), and a
-    // sender who only gets the message echoed back to himself (fingerprint-banned, or
-    // muted from public channels below the vanish level) is not heard by modules either.
-    // AsyncSay is the single entry for client and re-injected (antispam-released,
-    // skipCheck) messages alike, so the hook still fires exactly for the messages that
-    // get delivered.
-    if (lang != LANG_ADDON && CheckSay(guid, skipCheck) == SAY_OK)
-    {
-        if (Player* pPlayer = sObjectAccessor.FindPlayer(guid))
-        {
-            WorldSession* sess = pPlayer->GetSession();
-            bool const echoOnly = !skipCheck && sess &&
-                (sess->IsFingerprintBanned() ||
-                 ((sess->GetAccountFlags() & ACCOUNT_FLAG_MUTED_FROM_PUBLIC_CHANNELS) &&
-                  sess->GetAccountMaxLevel() < sWorld.getConfig(CONFIG_UINT32_PUB_CHANS_MUTE_VANISH_LEVEL)));
-            if (!echoOnly)
-                ScriptRegistry<PlayerScript>::ForEachEnabledHook(PLAYERHOOK_ON_CHAT_CHANNEL,
-                    [&](PlayerScript* s) { s->OnChatChannel(pPlayer, GetName().c_str(), what); });
-        }
-    }
-
-    sWorld.GetChannelBroadcaster()->EnqueueMessage(what, GetName(), guid, lang, GetTeam(), skipCheck);
+    if (ChannelBroadcaster* broadcaster = sWorld.GetChannelBroadcaster())
+        if (what)
+            broadcaster->EnqueueMessage(std::string(what), GetName(), guid, lang, GetTeam(), skipCheck);
 }
 
 void Channel::Invite(ObjectGuid guid, const char *targetName)

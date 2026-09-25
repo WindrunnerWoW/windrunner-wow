@@ -194,6 +194,14 @@ void BattleGroundWS::EventPlayerCapturedFlag(Player *Source)
     Team winner = TEAM_NONE;
 
     Source->RemoveAurasWithInterruptFlags(AURA_INTERRUPT_FLAG_ENTER_PVP_COMBAT);
+
+    // Clear the anti-stall debuff on a successful capture. The flag aura
+    // reapplies Focused Assault every 60 seconds and each stack lasts ten
+    // minutes, so without this a carrier keeps the stacked damage penalty long
+    // after scoring. Deliberately only on capture, not on drop - clearing it on
+    // drop would let a carrier reset the stacks by dropping the flag and taking
+    // it back up, which is exactly what the debuff exists to prevent.
+    Source->RemoveAurasDueToSpell(BG_WS_SPELL_FOCUSED_ASSAULT);
     if (Source->GetTeam() == ALLIANCE)
     {
         if (!IsHordeFlagPickedup())

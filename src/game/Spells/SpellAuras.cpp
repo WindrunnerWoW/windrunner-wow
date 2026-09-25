@@ -297,11 +297,6 @@ pAuraHandler AuraHandler[TOTAL_AURAS] =
     &Aura::HandleNoImmediateEffect,                         //226 SPELL_AURA_MOD_RAGE_FROM_DAMAGE_DEALT implemented in Unit::HandleModRageFromDamageDealtAuraProc
 };
 
-void SpellAuraHolder::SetAura(uint32 slot, bool remove)
-{
-    m_target->SetUInt32Value(UNIT_FIELD_AURA + slot, remove ? 0 : GetId());
-}
-
 static AuraType const frozenAuraTypes[] = { SPELL_AURA_MOD_ROOT, SPELL_AURA_MOD_STUN, SPELL_AURA_NONE };
 
 Aura::Aura(SpellEntry const* spellproto, SpellEffectIndex eff, int32 *currentBasePoints, SpellAuraHolder *holder, Unit *target, Unit *caster, Item* castItem) :
@@ -337,7 +332,7 @@ Aura::Aura(SpellEntry const* spellproto, SpellEffectIndex eff, int32 *currentBas
     SetModifier(AuraType(spellproto->EffectApplyAuraName[eff]), damage, spellproto->EffectAmplitude[eff], spellproto->EffectMiscValue[eff]);
 
     // Snapshot the starting absorb amount so we can reference it on shield break.
-    if (m_modifier.m_auraname == SPELL_AURA_SCHOOL_ABSORB || m_modifier.m_auraname == SPELL_AURA_MANA_SHIELD)
+    if (m_modifier.m_auraname == SPELL_AURA_SCHOOL_ABSORB)
         m_initialAbsorbAmount = m_modifier.m_amount;
 
     CalculatePeriodic(caster ? caster->GetSpellModOwner() : nullptr, true);
@@ -5942,8 +5937,15 @@ void Aura::PeriodicTick(SpellEntry const* sProto, AuraType auraType, uint32 data
             }
 
             // TODO: once dithering is implemented properly it should get removed from there
+            // Curse of Agony damage-per-tick calculation
+            if (spellProto->IsFitToFamily<SPELLFAMILY_WARLOCK, CF_WARLOCK_CURSE_OF_AGONY>())
+            {
+                double d = (-1 + ((int)GetAuraTicks() - 1) / 4) * (spellProto->CalculateSimpleValue(EFFECT_INDEX_0) / 2.0);
+                d = std::max(d, 0.);
+                pdamage = dither(pdamage + d);
+            }
             // Starshards damage-per-tick calculation
-            if (spellProto->IsFitToFamily<SPELLFAMILY_PRIEST, CF_PRIEST_STARSHARDS>())
+            else if (spellProto->IsFitToFamily<SPELLFAMILY_PRIEST, CF_PRIEST_STARSHARDS>())
             {
                 double d = (-1 + ((int)GetAuraTicks() - 1) / 2) * (spellProto->CalculateSimpleValue(EFFECT_INDEX_0) / 3.0);
                 d = std::max(d, 0.);

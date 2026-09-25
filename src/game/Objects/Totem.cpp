@@ -109,6 +109,11 @@ void Totem::Summon(Unit* owner)
         e->OnSummoned(this, owner);
 #endif
 
+#ifdef ENABLE_ELUNA
+    if (Eluna* e = GetEluna())
+        e->OnSummoned(this, owner);
+#endif
+
     // there are some totems, which exist just for their visual appeareance
     if (!GetSpell())
         return;

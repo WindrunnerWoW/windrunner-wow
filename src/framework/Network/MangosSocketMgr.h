@@ -38,6 +38,13 @@ class MangosSocketMgr
         int StartThreadsIfNeeded();
 
         MangosSocketMgr();
+        // Explicitly noexcept. ACE_Singleton<WorldSocketMgr, ACE_Thread_Mutex>
+        // holds a WorldSocketMgr by value and derives from ACE_Cleanup, whose
+        // destructor is virtual and therefore implicitly noexcept. Every member
+        // here destructs without throwing, so gcc deduces noexcept and the
+        // override is fine - MSVC does not, and rejects the generated
+        // ~ACE_Singleton with C2694 for having a weaker exception specification
+        // than the base. Saying it out loud costs nothing and builds everywhere.
         ~MangosSocketMgr() noexcept;
 
         ReactorRunnable<SocketType>* m_NetThreads;
