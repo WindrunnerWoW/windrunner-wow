@@ -1,0 +1,109 @@
+100 Migrationen gegen sql/base geprueft
+
+Migration                        drin      neu  ALTER  Urteil
+------------------------------------------------------------------------------------
+20260504194945_world.sql         1489        0      -  steckt in der Momentaufnahme
+20260504203644_world.sql           23        0      -  steckt in der Momentaufnahme
+20260504214035_world.sql            7      187      -  noch nicht angewendet
+20260505222630_world.sql        19128     2781      -  teilweise 87%
+20260506204945_world.sql            0      139      -  noch nicht angewendet
+20260507165648_world.sql         5979      719      -  teilweise 89%
+20260507184157_world.sql        11556     1035      -  teilweise 92%
+20260507191316_world.sql            0        0      -  keine Schluessel
+20260508064255_world.sql        33648     3139      -  teilweise 91%
+20260508192404_world.sql        20586      360      -  steckt in der Momentaufnahme
+20260509055406_world.sql        10727     3465      -  teilweise 76%
+20260510092659_world.sql        12402     2024      -  teilweise 86%
+20260511053220_world.sql       287303   223244      -  teilweise 56%
+20260511154529_world.sql            0        0      -  keine Schluessel
+20260511164918_world.sql            0        0      -  keine Schluessel
+20260511211643_world.sql         2781      251      -  teilweise 92%
+20260512033310_world.sql            0        4      -  noch nicht angewendet
+20260512130432_world.sql            0     6102      -  noch nicht angewendet
+20260512224739_world.sql            0       92      -  noch nicht angewendet
+20260513084003_world.sql         2450    20836      -  teilweise 11%
+20260513094906_world.sql            0        0      -  keine Schluessel
+20260513233443_world.sql            1     4098      -  noch nicht angewendet
+20260514011114_world.sql           58      138      -  teilweise 30%
+20260514035236_world.sql            0      604      -  noch nicht angewendet
+20260516050606_world.sql            0     2530      -  noch nicht angewendet
+20260516210743_world.sql            0        0      -  keine Schluessel
+20260517045535_world.sql            0        0      -  keine Schluessel
+20260517062330_world.sql            0      211      -  noch nicht angewendet
+20260517101017_world.sql          220        0      -  steckt in der Momentaufnahme
+20260517121832_world.sql            0       14      -  noch nicht angewendet
+20260518050203_world.sql         2572      100      -  steckt in der Momentaufnahme
+20260522141111_world.sql            0      250      -  noch nicht angewendet
+20260523041131_world.sql            0      139      -  noch nicht angewendet
+20260526123433_world.sql            0      623      -  noch nicht angewendet
+20260526134500_world.sql            0        8      -  noch nicht angewendet
+20260527120000_world.sql            0       17      -  noch nicht angewendet
+20260528150633_world.sql            0        0      -  keine Schluessel
+20260529182210_world.sql            0     1076      -  noch nicht angewendet
+20260530203924_world.sql            0        0      -  keine Schluessel
+20260602180159_world.sql            0      774      -  noch nicht angewendet
+20260603094447_world.sql            0     1588      -  noch nicht angewendet
+20260604214927_world.sql            0        0      -  keine Schluessel
+20260604222044_world.sql            0        0      -  keine Schluessel
+20260605181338_world.sql            3     2964      -  noch nicht angewendet
+20260606120000_world.sql            0        0      -  keine Schluessel
+20260606142438_world.sql            0        0      -  keine Schluessel
+20260608174707_world.sql            0     1803      -  noch nicht angewendet
+20260610134807_world.sql            0      657      -  noch nicht angewendet
+20260614120836_world.sql           69     4071      -  noch nicht angewendet
+20260614124739_world.sql            0        0      -  keine Schluessel
+20260617120000_world.sql           27        0      -  steckt in der Momentaufnahme
+20260618114919_world.sql            1     9147      -  noch nicht angewendet
+20260618120000_world.sql            0        0      -  keine Schluessel
+20260619123444_world.sql            0        0      -  keine Schluessel
+20260619155101_world.sql            1      343      -  noch nicht angewendet
+20260620003740_world.sql            2      186      -  noch nicht angewendet
+20260620113716_world.sql            0      132      -  noch nicht angewendet
+20260620120000_world.sql            2        0      -  steckt in der Momentaufnahme
+20260620130000_world.sql            0        0      -  keine Schluessel
+20260620152800_world.sql            0       76      -  noch nicht angewendet
+20260620224628_world.sql           24      972      -  noch nicht angewendet
+20260622203054_world.sql            0      154      -  noch nicht angewendet
+20260624094237_world.sql            0     1154      -  noch nicht angewendet
+20260625083947_world.sql            1      318      -  noch nicht angewendet
+20260626153218_world.sql            8      140      -  teilweise 5%
+20260628192033_world.sql            0      161      -  noch nicht angewendet
+20260629195406_world.sql            0        0      -  keine Schluessel
+20260630194548_world.sql            0     1580      -  noch nicht angewendet
+20260701010422_world.sql            0     2544      -  noch nicht angewendet
+20260702115558_world.sql            0        5      -  noch nicht angewendet
+20260702232910_world.sql            0     1101      -  noch nicht angewendet
+20260706100617_world.sql            0     1812      -  noch nicht angewendet
+20260707174014_world.sql            0      430      -  noch nicht angewendet
+20260709071006_world.sql            0       20      -  noch nicht angewendet
+20260710045142_world.sql            0      348      -  noch nicht angewendet
+20260711131631_world.sql           13      197      -  teilweise 6%
+20260711150912_world.sql            0        0      -  keine Schluessel
+20260711170358_world.sql            0        4      -  noch nicht angewendet
+20260711191209_world.sql            0        1      -  noch nicht angewendet
+20260712222616_world.sql            0        0      -  keine Schluessel
+20260714180156_world.sql            0       31      -  noch nicht angewendet
+20260714235525_world.sql            1       16      -  teilweise 6%
+20260715003750_world.sql            0       13      -  noch nicht angewendet
+20260715124044_world.sql           13       26      -  teilweise 33%
+20260715141903_world.sql          267        1      -  steckt in der Momentaufnahme
+20260715153051_world.sql            0        1      -  noch nicht angewendet
+20260715174518_world.sql            0        0      -  keine Schluessel
+20260718120125_world.sql           46        0      -  steckt in der Momentaufnahme
+20260718150344_world.sql          564       53      -  teilweise 91%
+20260718184759_world.sql            0        0      -  keine Schluessel
+20260721013813_world.sql            0        0     ja  keine Schluessel
+20260721095654_world.sql            0        0      -  keine Schluessel
+20260721231140_world.sql            6       12      -  teilweise 33%
+20260724201050_world.sql           20       39      -  teilweise 34%
+20260726112016_world.sql            4       23      -  teilweise 15%
+20260730120000_world.sql            0        4      -  noch nicht angewendet
+20260730120100_world.sql            0        0      -  keine Schluessel
+20260730120200_world.sql            0        4      -  noch nicht angewendet
+20260730120300_world.sql            0        0      -  keine Schluessel
+20260730200000_world.sql            0        0      -  keine Schluessel
+
+====================================================================================
+steckt in der Momentaufnahme:   9
+noch nicht angewendet:         47
+unklar:                        44
