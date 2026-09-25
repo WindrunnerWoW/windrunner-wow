@@ -48,6 +48,7 @@ set(MODULES_COMMON_INCLUDES
   ${CMAKE_SOURCE_DIR}/src/game/Movement/spline
   ${CMAKE_SOURCE_DIR}/src/game/Objects
   ${CMAKE_SOURCE_DIR}/src/game/OutdoorPvP
+  ${CMAKE_SOURCE_DIR}/src/game/PlayerBots
   ${CMAKE_SOURCE_DIR}/src/game/Protocol
   ${CMAKE_SOURCE_DIR}/src/game/Spells
   ${CMAKE_SOURCE_DIR}/src/game/Threat
@@ -168,14 +169,14 @@ foreach(SOURCE_MODULE ${MODULES_MODULE_LIST})
     endif()
   endif()
 
-  if(NOT MODULE_LINKAGE STREQUAL "disabled")
-    file(GLOB MODULE_CONFIG_DIST_FILES CONFIGURE_DEPENDS
-      "${CMAKE_SOURCE_DIR}/modules/${SOURCE_MODULE}/conf/*.conf.dist")
+  # Ship every module template, including modules that are not linked.
+  # mangosd loads this list at startup and exits if a named file is missing.
+  file(GLOB MODULE_CONFIG_DIST_FILES CONFIGURE_DEPENDS
+    "${CMAKE_SOURCE_DIR}/modules/${SOURCE_MODULE}/conf/*.conf.dist")
 
-    foreach(MODULE_CONFIG_DIST_FILE ${MODULE_CONFIG_DIST_FILES})
-      CopyModuleConfig("${MODULE_CONFIG_DIST_FILE}")
-    endforeach()
-  endif()
+  foreach(MODULE_CONFIG_DIST_FILE ${MODULE_CONFIG_DIST_FILES})
+    CopyModuleConfig("${MODULE_CONFIG_DIST_FILE}")
+  endforeach()
 
   if(MODULE_LINKAGE STREQUAL "static")
     CollectModuleSourceFiles("${MODULE_SOURCE_PATH}" MODULE_SOURCE_FILES)
