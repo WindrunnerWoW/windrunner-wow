@@ -684,6 +684,18 @@ CREATE TABLE `character_queststatus` (
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
+-- Table structure for table `character_weekly_quest`
+--
+
+DROP TABLE IF EXISTS `character_weekly_quest`;
+CREATE TABLE `character_weekly_quest` (
+  `guid` int(10) unsigned NOT NULL DEFAULT 0 COMMENT 'Global Unique Identifier',
+  `quest` int(10) unsigned NOT NULL DEFAULT 0 COMMENT 'Quest Identifier',
+  `completed_period` bigint(20) unsigned NOT NULL DEFAULT 0,
+  PRIMARY KEY (`guid`,`quest`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci ROW_FORMAT=DYNAMIC COMMENT='Per-character weekly quest completion';
+
+--
 -- Table structure for table `character_reputation`
 --
 
@@ -1962,6 +1974,21 @@ CREATE TABLE `petition_sign` (
 ) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci ROW_FORMAT=DYNAMIC COMMENT='Guild System';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
+--
+-- Table structure for table `playerbot`
+--
+
+DROP TABLE IF EXISTS `playerbot`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `playerbot` (
+  `char_guid` bigint(20) unsigned NOT NULL,
+  `chance` int(10) unsigned NOT NULL DEFAULT 10,
+  `comment` varchar(255) DEFAULT NULL,
+  `ai` varchar(50) DEFAULT NULL,
+  PRIMARY KEY (`char_guid`) USING BTREE
+) ENGINE=MyISAM DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci ROW_FORMAT=DYNAMIC;
+/*!40101 SET character_set_client = @saved_cs_client */;
 
 --
 -- Table structure for table `saved_variables`
@@ -6224,7 +6251,7 @@ DROP TABLE IF EXISTS `gossip_menu`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8mb4 */;
 CREATE TABLE `gossip_menu` (
-  `entry` mediumint(8) unsigned NOT NULL DEFAULT 0,
+  `entry` smallint(5) unsigned NOT NULL DEFAULT 0,
   `text_id` mediumint(8) unsigned NOT NULL DEFAULT 0,
   `script_id` mediumint(8) unsigned NOT NULL DEFAULT 0,
   `condition_id` mediumint(8) unsigned NOT NULL DEFAULT 0,
@@ -6240,7 +6267,7 @@ DROP TABLE IF EXISTS `gossip_menu_option`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8mb4 */;
 CREATE TABLE `gossip_menu_option` (
-  `menu_id` mediumint(8) unsigned NOT NULL DEFAULT 0,
+  `menu_id` smallint(5) unsigned NOT NULL DEFAULT 0,
   `id` smallint(5) unsigned NOT NULL DEFAULT 0,
   `option_icon` mediumint(8) unsigned NOT NULL DEFAULT 0,
   `option_text` text CHARACTER SET utf8mb3 COLLATE utf8mb3_general_ci DEFAULT NULL,
@@ -7299,7 +7326,7 @@ DROP TABLE IF EXISTS `locales_gossip_menu_option`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!40101 SET character_set_client = utf8mb4 */;
 CREATE TABLE `locales_gossip_menu_option` (
-  `menu_id` mediumint(8) unsigned NOT NULL DEFAULT 0,
+  `menu_id` smallint(5) unsigned NOT NULL DEFAULT 0,
   `id` smallint(5) unsigned NOT NULL DEFAULT 0,
   `option_text_loc0` text DEFAULT NULL,
   `option_text_loc1` text DEFAULT NULL,
@@ -8424,6 +8451,20 @@ CREATE TABLE `player_xp_for_level` (
 ) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci ROW_FORMAT=FIXED;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
+--
+-- Table structure for table `playerbot`
+--
+
+DROP TABLE IF EXISTS `playerbot`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `playerbot` (
+  `char_guid` bigint(20) unsigned NOT NULL,
+  `chance` int(10) unsigned NOT NULL DEFAULT 10,
+  `comment` varchar(255) DEFAULT NULL,
+  PRIMARY KEY (`char_guid`) USING BTREE
+) ENGINE=MyISAM DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci ROW_FORMAT=DYNAMIC;
+/*!40101 SET character_set_client = @saved_cs_client */;
 
 --
 -- Table structure for table `playercreateinfo`
@@ -9276,25 +9317,6 @@ CREATE TABLE `skillraceclassinfo` (
   `SkillCostIndex` int(10) unsigned NOT NULL DEFAULT 0,
   PRIMARY KEY (`Id`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci ROW_FORMAT=COMPRESSED KEY_BLOCK_SIZE=8;
-
---
--- Table structure for table `skill_race_class_info_mod`
---
-
-DROP TABLE IF EXISTS `skill_race_class_info_mod`;
-
-CREATE TABLE `skill_race_class_info_mod` (
-  `Id` int(10) unsigned NOT NULL DEFAULT 0,
-  `SkillLineDbcRecord` int(11) NOT NULL DEFAULT -1,
-  `RaceMask` int(11) NOT NULL DEFAULT -1,
-  `ClassMask` int(11) NOT NULL DEFAULT -1,
-  `Flags` int(11) NOT NULL DEFAULT -1,
-  `MinLevel` int(11) NOT NULL DEFAULT -1,
-  `SkillTierId` int(11) NOT NULL DEFAULT -1,
-  `SkillCostIndex` int(11) NOT NULL DEFAULT -1,
-  `Comment` varchar(255) DEFAULT NULL,
-  PRIMARY KEY (`Id`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci ROW_FORMAT=COMPRESSED KEY_BLOCK_SIZE=8;
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --
@@ -9739,6 +9761,24 @@ CREATE TABLE `spell_effect_mod` (
   `Comment` varchar(255) DEFAULT NULL,
   PRIMARY KEY (`Id`,`EffectIndex`) USING BTREE
 ) ENGINE=MyISAM DEFAULT CHARSET=latin1 COLLATE=latin1_swedish_ci ROW_FORMAT=DYNAMIC;
+/*!40101 SET character_set_client = @saved_cs_client */;
+
+--
+-- Table structure for table `spell_extra`
+--
+
+DROP TABLE IF EXISTS `spell_extra`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!40101 SET character_set_client = utf8mb4 */;
+CREATE TABLE `spell_extra` (
+  `entry` int(10) unsigned NOT NULL DEFAULT 0,
+  `effectBonusCoefficient1` float NOT NULL DEFAULT -1,
+  `effectBonusCoefficient2` float NOT NULL DEFAULT -1,
+  `effectBonusCoefficient3` float NOT NULL DEFAULT -1,
+  `minTargetLevel` int(10) unsigned NOT NULL DEFAULT 0,
+  `customFlags` int(10) unsigned NOT NULL DEFAULT 0,
+  PRIMARY KEY (`entry`) USING BTREE
+) ENGINE=MyISAM DEFAULT CHARSET=utf8mb3 COLLATE=utf8mb3_general_ci ROW_FORMAT=FIXED COMMENT='Server-only Spell.dbc fields';
 /*!40101 SET character_set_client = @saved_cs_client */;
 
 --

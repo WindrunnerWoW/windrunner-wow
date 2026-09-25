@@ -1,0 +1,11 @@
+-- ai_playerbot_random_bots only has single-column indexes on owner/bot/event
+-- individually, so `DELETE FROM ai_playerbot_random_bots WHERE owner = ? AND
+-- bot = ? AND event = ?` (RandomPlayerbotMgr::SetEventValue) resolves via a
+-- non-unique secondary index and gap-locks a range under InnoDB's default
+-- REPEATABLE READ. A mass bot logout (e.g. RandomBotLoginWithPlayer=1 kicking
+-- ~1000+ bots at once, spread across CharacterDatabase.WorkerThreads
+-- concurrent connections) hits overlapping ranges across many bot IDs and
+-- deadlocks (ER_LOCK_DEADLOCK / 1213), which isn't retried and repeats every
+-- tick. A composite index turns that DELETE into a precise point-lookup, so
+-- concurrent deletes for different bot IDs no longer overlap.
+ALTER TABLE `ai_playerbot_random_bots` ADD INDEX IF NOT EXISTS `idx_owner_bot_event` (`owner`, `bot`, `event`);
