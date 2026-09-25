@@ -43,6 +43,15 @@ class PlayerbotWorldScript : public WorldScript
         {
             if (!sPlayerbotAIConfig.enabled)
                 return;
+            if (sPlayerbotAIConfig.windrunnerCompanionMode)
+            {
+                RandomPlayerbotFactory::InitializeCreationData();
+                if (!sPlayerbotAIConfig.companionRecruiterRegistered ||
+                    !sConfig.GetBoolDefault("CompanionRecruiter.Enabled", true))
+                    sLog.outError("[PlayerBots] WindrunnerCompanionMode is enabled, but CompanionRecruiter is absent or disabled; bots will remain offline.");
+                auctionbot.Init();
+                return;
+            }
             RandomPlayerbotFactory::CreateRandomBots();
             auctionbot.Init();
         }
@@ -52,6 +61,9 @@ class PlayerbotWorldScript : public WorldScript
         {
             if (!sPlayerbotAIConfig.enabled)
                 return;
+            // UpdateAI ticks bot sessions before applying its random-pool gate.
+            // In companion mode this keeps recruiter companions alive while
+            // preventing all random population and lifecycle processing.
             sRandomPlayerbotMgr.UpdateAI(diff);
             auctionbot.Update();
         }

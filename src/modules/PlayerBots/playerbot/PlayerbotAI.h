@@ -66,6 +66,7 @@ public:
 
 namespace ai
 {
+    class Engine;
     class WorldPosition;
     class GuidPosition;
     class IterateItemsVisitor;
@@ -443,6 +444,9 @@ public:
     bool SayToGuildRecruitment(std::string msg);
     bool SayToParty(std::string msg, bool likePlayer = false);
     bool SayToRaid(std::string msg);
+    // Narrow channel for scheduled companion conversations. In companion mode
+    // this can only post to the bot's current party or raid.
+    bool SayCompanionBanter(std::string const& message);
     bool Yell(std::string msg, bool likePlayer = false);
     bool Say(std::string msg, bool likePlayer = false);
     bool Whisper(std::string msg, std::string receiverName, bool likePlayer = false);
@@ -588,6 +592,7 @@ private:
 public:
 	Player* GetBot() { return bot; }
     Player* GetMaster() { return master; }
+    bool IsOwnerReplyContext() const { return m_ownerReplyContext; }
 
     // accessor for the active engine so
     // cpp can build heartbeat / debug payloads without being
@@ -817,6 +822,7 @@ public:
 #endif
 
 private:
+    friend class ai::Engine;
     bool UpdateAIReaction(uint32 elapsed, bool minimal, bool isStunned);
     void UpdateFaceTarget(uint32 elapsed, bool minimal);
     void ObserveCombatTargetChanges();
@@ -829,6 +835,7 @@ protected:
 	Player* master;
 	uint8 m_forcedRole = 0;
 	bool m_suppressAreaTriggerRelay = false;
+    bool m_ownerReplyContext = false;
 	// GUID-shadow of `master` so we can verify the pointer is still
 	// alive each tick without dereferencing it. Set in SetMaster().
 	// Used by RevalidateMasterPointer() at the top of UpdateAI.

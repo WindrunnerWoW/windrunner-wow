@@ -182,7 +182,10 @@ bool TradeStatusAction::CheckTrade()
             }
             else
             {
-                bot->Say("Thank you " + name + ".", (bot->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH));
+                if (!sPlayerbotAIConfig.windrunnerCompanionMode)
+                {
+                    bot->Say("Thank you " + name + ".", (bot->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH));
+                }
             }
         }
         return isGettingItem;

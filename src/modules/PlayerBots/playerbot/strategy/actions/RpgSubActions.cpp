@@ -381,7 +381,10 @@ bool RpgAIChatAction::SpeakLine()
         if (type == CHAT_MSG_EMOTE)
             bot->TextEmote(message.c_str());
         else
-            bot->Say(message.c_str(), lang);
+            if (!sPlayerbotAIConfig.windrunnerCompanionMode)
+            {
+                bot->Say(message.c_str(), lang);
+            }
         message = bot->GetName() + std::string(": ") + message;
     }
     else
@@ -651,7 +654,10 @@ void RpgAIChatAction::ManualChat(GuidPosition target, const std::string& line)
         if (line.find("*") == 0)
             bot->TextEmote(line);
         else
-            bot->Say(line, LANG_UNIVERSAL);
+            if (!sPlayerbotAIConfig.windrunnerCompanionMode)
+            {
+                bot->Say(line, LANG_UNIVERSAL);
+            }
 
         llmContext += std::string(" ") + bot->GetName() + std::string(":") + line;
     }
@@ -698,6 +704,9 @@ bool RpgTradeUsefulAction::IsTradingItem(uint32 entry)
 
 bool RpgTradeUsefulAction::Execute(Event& event)
 {
+    if (sPlayerbotAIConfig.windrunnerCompanionMode)
+        return false;
+
     rpg->BeforeExecute();
 
     GuidPosition guidP = AI_VALUE(GuidPosition, "rpg target");
@@ -739,7 +748,10 @@ bool RpgTradeUsefulAction::Execute(Event& event)
             if (bot->GetGroup() && bot->GetGroup()->IsMember(guidP))
                 ai->TellPlayerNoFacing(GetMaster(), "You can use this " + chat->formatItem(item) + " better than me, " + player->GetName() + ".", PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, false);
             else
-                bot->Say("You can use this " + chat->formatItem(item) + " better than me, " + player->GetName() + ".", (bot->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH));
+                if (!sPlayerbotAIConfig.windrunnerCompanionMode)
+                {
+                    bot->Say("You can use this " + chat->formatItem(item) + " better than me, " + player->GetName() + ".", (bot->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH));
+                }
 
             if (!urand(0, 4) || items.size() < 2) //Complete the trade if we have no more items to trade.
             {
@@ -765,6 +777,9 @@ bool RpgTradeUsefulAction::Execute(Event& event)
 
 bool RpgEnchantAction::Execute(Event& event)
 {
+    if (sPlayerbotAIConfig.windrunnerCompanionMode)
+        return false;
+
     rpg->BeforeExecute();
 
     GuidPosition guidP = AI_VALUE(GuidPosition, "rpg target");
@@ -834,7 +849,10 @@ bool RpgEnchantAction::Execute(Event& event)
                     if (bot->GetGroup() && bot->GetGroup()->IsMember(guidP))
                         ai->TellPlayerNoFacing(GetMaster(), "Let me enchant this " + chat->formatItem(item) + " with " + chat->formatSpell(spellId) + " for you " + player->GetName() + ".", PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, false);
                     else
-                        bot->Say("Let me enchant this " + chat->formatItem(item) + " with " + chat->formatSpell(spellId) + " for you " + player->GetName() + ".", (bot->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH));
+                        if (!sPlayerbotAIConfig.windrunnerCompanionMode)
+                        {
+                            bot->Say("Let me enchant this " + chat->formatItem(item) + " with " + chat->formatSpell(spellId) + " for you " + player->GetName() + ".", (bot->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH));
+                        }
 
                     WorldPacket p;
                     uint32 status = TRADE_STATUS_TRADE_ACCEPT;
@@ -875,6 +893,9 @@ bool RpgDuelAction::isUseful()
 
 bool RpgDuelAction::Execute(Event& event)
 {
+    if (sPlayerbotAIConfig.windrunnerCompanionMode)
+        return false;
+
     GuidPosition guidP = AI_VALUE(GuidPosition, "rpg target");
 
     Player* player = guidP.GetPlayer();

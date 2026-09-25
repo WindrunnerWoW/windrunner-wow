@@ -266,7 +266,8 @@ RandomPlayerbotMgr::RandomPlayerbotMgr()
 , processTicks(0)
 , loginProgressBar(NULL)
 {
-    if (sPlayerbotAIConfig.enabled && sPlayerbotAIConfig.randomBotAutologin)
+    if (sPlayerbotAIConfig.enabled && sPlayerbotAIConfig.randomBotAutologin &&
+        !sPlayerbotAIConfig.windrunnerCompanionMode)
     {
         sPlayerbotCommandServer.Start();
         PrepareTeleportCache();
@@ -654,6 +655,9 @@ void RandomPlayerbotMgr::UpdateAIInternal(uint32 elapsed, bool minimal)
     // same purpose, applied to the random-bot pool.
     UpdateSessions(elapsed);
 
+    if (sPlayerbotAIConfig.windrunnerCompanionMode)
+        return;
+
     if (!sPlayerbotAIConfig.randomBotAutologin || !sPlayerbotAIConfig.enabled)
         return;
 
@@ -873,6 +877,9 @@ void RandomPlayerbotMgr::ScaleBotActivity()
 
 void RandomPlayerbotMgr::LoginFreeBots()
 {
+    if (sPlayerbotAIConfig.windrunnerCompanionMode)
+        return;
+
     if (!sPlayerbotAIConfig.freeAltBots.empty() && sPlayerbotAIConfig.botAutologin != BotAutoLogin::LOGIN_ONLY_ALWAYS_ACTIVE)
     {
         std::vector<std::pair<uint32, uint32>> botsToRemove;
@@ -2231,6 +2238,9 @@ void RandomPlayerbotMgr::ScheduleChangeStrategy(uint32 bot, uint32 time)
 
 bool RandomPlayerbotMgr::AddRandomBot(uint32 bot)
 {
+    if (sPlayerbotAIConfig.windrunnerCompanionMode)
+        return false;
+
     SC_LOG("AddRandomBot entry guid=%u", bot);
     Player* player = GetPlayerBot(bot);
     if (player)
@@ -3847,7 +3857,7 @@ void RandomPlayerbotMgr::OnBotLoginInternal(Player * const bot)
 
 void RandomPlayerbotMgr::OnPlayerLogin(Player* player)
 {
-    if (!sPlayerbotAIConfig.enabled)
+    if (!sPlayerbotAIConfig.enabled || sPlayerbotAIConfig.windrunnerCompanionMode)
         return;
 
     ForEachPlayerbot([&](Player* bot)

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <unordered_set>
+#include <functional>
 #include "Config/Config.h"
 #include "Talentspec.h"
 #include "SharedDefines.h"
@@ -113,6 +114,13 @@ public:
 	bool IsInPvpProhibitedZone(uint32 id);
 
     bool enabled;
+    // Restrict bot creation and login to recruiter-owned companions. Restart required.
+    bool windrunnerCompanionMode = true;
+    bool windrunnerCompanionModeInitialized = false;
+    bool companionRecruiterRegistered = false;
+    // Supplied by the recruiter. Returns true only while the bot has an active
+    // contract or an explicit owned-companion invitation.
+    std::function<bool(uint32)> companionRecruiterAllowsLogin;
     // mod-playerbots caps how many bots one account may .add; the dungeon-clear
     // test runner reads it to size its parties. Zero keeps that gate open, the
     // same default mod-playerbots ships.

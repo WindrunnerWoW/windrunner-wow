@@ -11,6 +11,10 @@ ConfVersion=2020072501
 # want to test/play with bots; flip back when you want guaranteed clean live play.
 AiPlayerbot.Enabled = 1
 
+# Only the Windrunner companion recruiter may create or log in bots.
+# Existing bot characters and accounts are retained offline. Restart required.
+AiPlayerbot.WindrunnerCompanionMode = 1
+
 # Enable random bot system
 # Single-bot manual-add (`.bot add <name>`) is the
 # recommended starting point. Random bots auto-spawn dozens of characters and

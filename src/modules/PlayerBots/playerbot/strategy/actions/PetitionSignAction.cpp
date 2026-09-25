@@ -14,6 +14,9 @@ using namespace ai;
 
 bool PetitionSignAction::Execute(Event& event)
 {
+    if (sPlayerbotAIConfig.windrunnerCompanionMode)
+        return false;
+
     Player* requester = event.getOwner() ? event.getOwner() : GetMaster();
     WorldPacket p(event.getPacket());
     p.rpos(0);
@@ -95,7 +98,10 @@ bool PetitionSignAction::Execute(Event& event)
         WorldPacket data(CMSG_PETITION_SIGN, 20);
         data << petitionGuid << unk;
         bot->GetSession()->HandlePetitionSignOpcode(data);
-        bot->Say("Thanks for the invite!", LANG_UNIVERSAL);
+        if (!sPlayerbotAIConfig.windrunnerCompanionMode)
+        {
+            bot->Say("Thanks for the invite!", LANG_UNIVERSAL);
+        }
         sLog.outDetail("Bot #%d <%s> accepts %s invite", bot->GetGUIDLow(), bot->GetName(), isArena ? "Arena" : "Guild");
         return true;
     }

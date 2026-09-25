@@ -60,6 +60,27 @@
 
 using namespace ai;
 
+namespace
+{
+    class OwnerReplyContextGuard
+    {
+    public:
+        OwnerReplyContextGuard(bool& context, bool enabled) : context(context), previous(context)
+        {
+            context = enabled;
+        }
+
+        ~OwnerReplyContextGuard()
+        {
+            context = previous;
+        }
+
+    private:
+        bool& context;
+        bool previous;
+    };
+}
+
 std::vector<std::string>& split(const std::string &s, char delim, std::vector<std::string> &elems);
 std::vector<std::string> split(const std::string &s, char delim);
 char * strstri (std::string str1, std::string str2);
@@ -1579,6 +1600,8 @@ void PlayerbotAI::HandleCommands()
 
         std::string command = holder.GetCommand();
         Player* owner = holder.GetOwner();
+        OwnerReplyContextGuard replyContext(m_ownerReplyContext,
+            sPlayerbotAIConfig.windrunnerCompanionMode && owner && owner == GetMaster());
         if (!helper.ParseChatCommand(command, owner) && holder.GetType() == CHAT_MSG_WHISPER)
         {
             //ostringstream out; out << "Unknown command " << command;
@@ -1874,6 +1897,11 @@ bool PlayerbotAI::IsAllowedCommand(std::string text)
 
 void PlayerbotAI::HandleCommand(uint32 type, const std::string& text, Player& fromPlayer, const uint32 lang)
 {
+    if (sPlayerbotAIConfig.windrunnerCompanionMode && (!GetMaster() || &fromPlayer != GetMaster()))
+        return;
+
+    OwnerReplyContextGuard replyContext(m_ownerReplyContext, sPlayerbotAIConfig.windrunnerCompanionMode);
+
     std::string filtered = text;
 
     if (!IsAllowedCommand(filtered) && !GetSecurity()->CheckLevelFor(PlayerbotSecurityLevel::PLAYERBOT_SECURITY_INVITE, type != CHAT_MSG_WHISPER, &fromPlayer))
@@ -3747,6 +3775,9 @@ ChatChannelSource PlayerbotAI::GetChatChannelSource(Player* bot, uint32 type, st
 
 bool PlayerbotAI::SayToGuild(std::string msg, bool likePlayer)
 {
+    if (sPlayerbotAIConfig.windrunnerCompanionMode)
+        return false;
+
     if (msg.empty())
     {
         return false;
@@ -3795,6 +3826,9 @@ bool PlayerbotAI::SayToGuild(std::string msg, bool likePlayer)
 
 bool PlayerbotAI::SayToWorld(std::string msg)
 {
+    if (sPlayerbotAIConfig.windrunnerCompanionMode)
+        return false;
+
     if (msg.empty())
     {
         return false;
@@ -3819,6 +3853,9 @@ bool PlayerbotAI::SayToWorld(std::string msg)
 
 bool PlayerbotAI::SayToGeneral(std::string msg)
 {
+    if (sPlayerbotAIConfig.windrunnerCompanionMode)
+        return false;
+
     if (msg.empty())
     {
         return false;
@@ -3852,6 +3889,9 @@ bool PlayerbotAI::SayToGeneral(std::string msg)
 
 bool PlayerbotAI::SayToTrade(std::string msg)
 {
+    if (sPlayerbotAIConfig.windrunnerCompanionMode)
+        return false;
+
     if (msg.empty())
     {
         return false;
@@ -3893,6 +3933,9 @@ bool PlayerbotAI::SayToTrade(std::string msg)
 
 bool PlayerbotAI::SayToLFG(std::string msg)
 {
+    if (sPlayerbotAIConfig.windrunnerCompanionMode)
+        return false;
+
     if (msg.empty())
     {
         return false;
@@ -3925,6 +3968,9 @@ bool PlayerbotAI::SayToLFG(std::string msg)
 
 bool PlayerbotAI::SayToLocalDefense(std::string msg)
 {
+    if (sPlayerbotAIConfig.windrunnerCompanionMode)
+        return false;
+
     if (msg.empty())
     {
         return false;
@@ -3958,6 +4004,9 @@ bool PlayerbotAI::SayToLocalDefense(std::string msg)
 
 bool PlayerbotAI::SayToWorldDefense(std::string msg)
 {
+    if (sPlayerbotAIConfig.windrunnerCompanionMode)
+        return false;
+
 #ifdef MANGOSBOT_ZERO
     //check if 11 honor rank
     if (bot->GetHonorRankInfo().rank < 11)
@@ -3990,6 +4039,9 @@ bool PlayerbotAI::SayToWorldDefense(std::string msg)
 
 bool PlayerbotAI::SayToGuildRecruitment(std::string msg)
 {
+    if (sPlayerbotAIConfig.windrunnerCompanionMode)
+        return false;
+
     //check for bot's level? level 60?
     if (msg.empty())
     {
@@ -4033,6 +4085,9 @@ bool PlayerbotAI::SayToGuildRecruitment(std::string msg)
 
 bool PlayerbotAI::SayToParty(std::string msg, bool likePlayer)
 {
+    if (sPlayerbotAIConfig.windrunnerCompanionMode)
+        return false;
+
     if (!bot->GetGroup())
     {
         return false;
@@ -4074,6 +4129,9 @@ bool PlayerbotAI::SayToParty(std::string msg, bool likePlayer)
 
 bool PlayerbotAI::SayToRaid(std::string msg)
 {
+    if (sPlayerbotAIConfig.windrunnerCompanionMode)
+        return false;
+
     if (!bot->GetGroup() || !bot->GetGroup()->IsRaidGroup())
     {
         return false;
@@ -4090,8 +4148,35 @@ bool PlayerbotAI::SayToRaid(std::string msg)
     return true;
 }
 
+bool PlayerbotAI::SayCompanionBanter(std::string const& message)
+{
+    if (!sPlayerbotAIConfig.windrunnerCompanionMode || message.empty() || !bot->GetGroup())
+        return false;
+
+    Group* group = bot->GetGroup();
+    ChatMsg chatType = group->IsRaidGroup() ? CHAT_MSG_RAID : CHAT_MSG_PARTY;
+    WorldPacket data;
+    ChatHandler::BuildChatPacket(data, chatType, message.c_str(), LANG_UNIVERSAL,
+        CHAT_TAG_NONE, bot->GetObjectGuid(), bot->GetName());
+
+    bool sent = false;
+    for (auto receiver : GetPlayersInGroup())
+    {
+        if (receiver && receiver != bot)
+        {
+            sServerFacade.SendPacket(receiver, data);
+            sent = true;
+        }
+    }
+
+    return sent;
+}
+
 bool PlayerbotAI::Yell(std::string msg, bool likePlayer)
 {
+    if (sPlayerbotAIConfig.windrunnerCompanionMode)
+        return false;
+
     uint32 lang = LANG_UNIVERSAL;
     if (bot->GetTeam() == ALLIANCE)
     {
@@ -4127,6 +4212,9 @@ bool PlayerbotAI::Yell(std::string msg, bool likePlayer)
 
 bool PlayerbotAI::Say(std::string msg, bool likePlayer)
 {
+    if (sPlayerbotAIConfig.windrunnerCompanionMode)
+        return false;
+
     uint32 lang = LANG_UNIVERSAL;
     if (bot->GetTeam() == ALLIANCE)
     {
@@ -4171,6 +4259,11 @@ bool PlayerbotAI::Whisper(std::string msg, std::string receiverName, bool likePl
         return false;
     }
 
+    // Companion mode only permits private replies to its configured owner.
+    if (sPlayerbotAIConfig.windrunnerCompanionMode &&
+        (!m_ownerReplyContext || !GetMaster() || rPlayer != GetMaster()))
+        return false;
+
     if (rPlayer == bot)
     {
         WorldPacket data;
@@ -4197,6 +4290,15 @@ bool PlayerbotAI::TellPlayerNoFacing(Player* player, std::string text, Playerbot
     if(!player)
         return false;
 
+    // All normal AI replies are owner-private in companion mode. The recruiter
+    // has its own narrowly scoped party/raid banter method above.
+    if (sPlayerbotAIConfig.windrunnerCompanionMode)
+    {
+        if (!m_ownerReplyContext || !GetMaster() || player != GetMaster())
+            return false;
+        isPrivate = true;
+    }
+
     if (!ignoreSilent && HasStrategy("silent", BotState::BOT_STATE_NON_COMBAT))
         return false;
 
@@ -4222,6 +4324,9 @@ bool PlayerbotAI::TellPlayerNoFacing(Player* player, std::string text, Playerbot
                 type = bot->GetGroup()->IsRaidGroup() ? CHAT_MSG_RAID : CHAT_MSG_PARTY;
             }
         }
+
+        if (sPlayerbotAIConfig.windrunnerCompanionMode)
+            type = CHAT_MSG_WHISPER;
 
         if (type == CHAT_MSG_SYSTEM && HasRealPlayerMaster())
             type = CHAT_MSG_WHISPER;
@@ -4296,7 +4401,7 @@ bool PlayerbotAI::TellPlayerNoFacing(Player* player, std::string text, Playerbot
 
                 whispers[text] = time(0);
 
-                if (currentChat.second >= time(0))
+                if (!sPlayerbotAIConfig.windrunnerCompanionMode && currentChat.second >= time(0))
                    type = currentChat.first;
 
                 if (type == CHAT_MSG_ADDON)
