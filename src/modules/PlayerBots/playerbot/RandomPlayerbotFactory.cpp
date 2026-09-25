@@ -266,6 +266,9 @@ uint8 RandomPlayerbotFactory::GetRandomRace(uint8 cls, Team team)
 
 bool RandomPlayerbotFactory::CreateRandomBot(uint8 cls, uint8 inputRace)
 {
+    if (sPlayerbotAIConfig.windrunnerCompanionMode)
+        return false;
+
     std::lock_guard<std::mutex> lock(nameMutex);
     EnsureNamesInitialized();
 
@@ -547,8 +550,9 @@ void RandomPlayerbotFactory::EnsureNamesInitialized()
 
 void RandomPlayerbotFactory::CreateRandomBots()
 {
-    EnsureNamesInitialized();
-    LoadCharSectionsDbc(sWorld.GetDataPath());
+    InitializeCreationData();
+    if (sPlayerbotAIConfig.windrunnerCompanionMode)
+        return;
 
     // check if scheduled for delete
     bool delAccs = false;
@@ -1045,6 +1049,12 @@ void RandomPlayerbotFactory::CreateRandomBots()
         delete session;
     }
     sLog.outString("%zu random bot accounts with %d characters available", sPlayerbotAIConfig.randomBotAccounts.size(), totalRandomBotChars+botsCreated);
+}
+
+void RandomPlayerbotFactory::InitializeCreationData()
+{
+    EnsureNamesInitialized();
+    LoadCharSectionsDbc(sWorld.GetDataPath());
 }
 
 

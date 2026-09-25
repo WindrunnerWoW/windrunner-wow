@@ -8,6 +8,10 @@ using namespace ai;
 
 bool CheckMailAction::Execute(Event& event)
 {
+    // Returning mistakenly sent items is an autonomous mail response.
+    if (sPlayerbotAIConfig.windrunnerCompanionMode)
+        return false;
+
     WorldPacket p;
     bot->GetSession()->HandleQueryNextMailTime(p);   
 

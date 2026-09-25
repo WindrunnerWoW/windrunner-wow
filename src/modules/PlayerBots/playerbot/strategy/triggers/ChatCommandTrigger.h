@@ -20,7 +20,9 @@ namespace ai
             if (!triggered)
                 return Event();
 
-            return Event(getName(), param, owner);
+            Event event(getName(), param, owner);
+            event.SetOwnerCommand(true);
+            return event;
         }
 
         virtual void Reset() override

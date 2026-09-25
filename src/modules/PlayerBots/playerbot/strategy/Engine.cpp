@@ -14,6 +14,27 @@
 
 using namespace ai;
 
+namespace
+{
+    class OwnerReplyContextGuard
+    {
+    public:
+        OwnerReplyContextGuard(bool& context, bool enabled) : context(context), previous(context)
+        {
+            context = enabled;
+        }
+
+        ~OwnerReplyContextGuard()
+        {
+            context = previous;
+        }
+
+    private:
+        bool& context;
+        bool previous;
+    };
+}
+
 Engine::Engine(PlayerbotAI* ai, AiObjectContext *factory, BotState state) : PlayerbotAIAware(ai), aiObjectContext(factory), state(state)
 {
     lastRelevance = 0.0f;
@@ -237,7 +258,10 @@ bool Engine::DoNextAction(Unit* unit, int depth, bool minimal, bool isStunned)
                     }
                     else
                     {
-                        ai->GetBot()->Say(out.str(), (ai->GetBot()->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH));
+                        if (!sPlayerbotAIConfig.windrunnerCompanionMode)
+                        {
+                            ai->GetBot()->Say(out.str(), (ai->GetBot()->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH));
+                        }
                     }
                 }
                 LogAction("A:%s - UNKNOWN", actionNode->getName().c_str());
@@ -339,7 +363,10 @@ bool Engine::DoNextAction(Unit* unit, int depth, bool minimal, bool isStunned)
                             }
                             else
                             {
-                                ai->GetBot()->Say(out.str(), (ai->GetBot()->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH));
+                                if (!sPlayerbotAIConfig.windrunnerCompanionMode)
+                                {
+                                    ai->GetBot()->Say(out.str(), (ai->GetBot()->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH));
+                                }
                             }
                         }
                         LogAction("A:%s - IMPOSSIBLE", action->getName().c_str());
@@ -367,7 +394,10 @@ bool Engine::DoNextAction(Unit* unit, int depth, bool minimal, bool isStunned)
                         }
                         else
                         {
-                            ai->GetBot()->Say(out.str(), (ai->GetBot()->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH));
+                            if (!sPlayerbotAIConfig.windrunnerCompanionMode)
+                            {
+                                ai->GetBot()->Say(out.str(), (ai->GetBot()->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH));
+                            }
                         }
                     }
                     lastRelevance = relevance;
@@ -799,6 +829,10 @@ Action* Engine::InitializeAction(ActionNode* actionNode)
 
 bool Engine::ListenAndExecute(Action* action, Event& event)
 {
+    OwnerReplyContextGuard replyContext(ai->m_ownerReplyContext,
+        ai->m_ownerReplyContext || (sPlayerbotAIConfig.windrunnerCompanionMode &&
+            event.IsOwnerCommand() && event.getOwner() && event.getOwner() == ai->GetMaster()));
+
     bool actionExecuted = false;
     Action* prevExecutedAction = lastExecutedAction;
     if (actionExecutionListeners.Before(action, event))
@@ -844,7 +878,10 @@ bool Engine::ListenAndExecute(Action* action, Event& event)
         }
         else
         {
-            ai->GetBot()->Say(out.str(), (ai->GetBot()->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH));
+            if (!sPlayerbotAIConfig.windrunnerCompanionMode)
+            {
+                ai->GetBot()->Say(out.str(), (ai->GetBot()->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH));
+            }
         }
     }
 

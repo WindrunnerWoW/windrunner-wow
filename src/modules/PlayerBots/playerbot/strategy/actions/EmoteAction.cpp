@@ -627,10 +627,16 @@ bool EmoteActionBase::ReceiveEmote(Player* requester, Player* source, uint32 emo
     if (verbal)
     {
         if (emoteText.size())
-            bot->Say(emoteText, (bot->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH));
+            if (!sPlayerbotAIConfig.windrunnerCompanionMode)
+            {
+                bot->Say(emoteText, (bot->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH));
+            }
 
         if (emoteYell.size())
-            bot->Yell(emoteYell, (bot->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH));
+            if (!sPlayerbotAIConfig.windrunnerCompanionMode)
+            {
+                bot->Yell(emoteYell, (bot->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH));
+            }
     }
 
     if (textEmote)
