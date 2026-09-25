@@ -119,6 +119,8 @@ namespace
 
 bool BGJoinAction::Execute(Event& event)
 {
+    if (sPlayerbotAIConfig.windrunnerCompanionMode)
+        return false;
     uint32 queueType = AI_VALUE(uint32, "bg type");
     if (!queueType) // force join to fill bg
     {
@@ -619,6 +621,8 @@ bool BGJoinAction::shouldJoinBg(BattleGroundQueueTypeId queueTypeId, BattleGroun
 
 bool BGJoinAction::isUseful()
 {
+    if (sPlayerbotAIConfig.windrunnerCompanionMode)
+        return false;
     // do not try if BG bots disabled
     if (!sPlayerbotAIConfig.randomBotJoinBG)
         return false;
@@ -938,6 +942,8 @@ bool BGJoinAction::JoinQueue(uint32 type)
 
 bool FreeBGJoinAction::shouldJoinBg(BattleGroundQueueTypeId queueTypeId, BattleGroundBracketId bracketId)
 {
+    if (sPlayerbotAIConfig.windrunnerCompanionMode)
+        return false;
     if (!sPlayerbotAIConfig.randomBotAutoJoinBG)
         return false;
 

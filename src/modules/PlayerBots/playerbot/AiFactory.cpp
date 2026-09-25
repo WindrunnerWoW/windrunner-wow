@@ -1043,7 +1043,8 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
     if (!player->InBattleGround() && sPlayerbotAIConfig.jumpFollow)
         nonCombatEngine->addStrategy("follow jump");
 
-    if ((facade->IsRealPlayer() || sRandomPlayerbotMgr.IsFreeBot(player)) && !player->InBattleGround())
+    if (!sPlayerbotAIConfig.windrunnerCompanionMode &&
+        (facade->IsRealPlayer() || sRandomPlayerbotMgr.IsFreeBot(player)) && !player->InBattleGround())
     {   
         Player* master = facade->GetMaster();
 
@@ -1058,7 +1059,7 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
             nonCombatEngine->addStrategy("start duel");
         }
 
-        if (sPlayerbotAIConfig.randomBotJoinLfg)
+        if (!sPlayerbotAIConfig.windrunnerCompanionMode && sPlayerbotAIConfig.randomBotJoinLfg)
         {
             nonCombatEngine->addStrategy("lfg");
         }
@@ -1083,7 +1084,7 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
                 nonCombatEngine->addStrategy("rpg");                
             }
 
-            if (sPlayerbotAIConfig.randomBotJoinBG)
+            if (!sPlayerbotAIConfig.windrunnerCompanionMode && sPlayerbotAIConfig.randomBotJoinBG)
             {
                 nonCombatEngine->addStrategy("bg");
             }

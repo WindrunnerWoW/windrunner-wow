@@ -52,6 +52,9 @@ Player* GuidManageAction::GetPlayer(Event event)
 
 bool GuidManageAction::Execute(Event& event)
 {
+    if (sPlayerbotAIConfig.windrunnerCompanionMode)
+        return false;
+
     Player* player = GetPlayer(event);
 
     if (!player || !PlayerIsValid(player) || player == bot)
@@ -66,6 +69,11 @@ bool GuidManageAction::Execute(Event& event)
 
 bool GuildManageNearbyAction::Execute(Event& event)
 {
+    // Nearby guild recruitment and raid announcements are autonomous social
+    // behavior and are disabled for companion characters.
+    if (sPlayerbotAIConfig.windrunnerCompanionMode)
+        return false;
+
     uint32 found = 0;
 
     Guild* guild = sGuildMgr.GetGuildById(bot->GetGuildId());
@@ -212,7 +220,10 @@ bool GuildManageNearbyAction::Execute(Event& event)
                     bot->GetGroup()->BroadcastPacket(data,true);
                 }
                 else
-                    bot->Say(line, (bot->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH));
+                    if (!sPlayerbotAIConfig.windrunnerCompanionMode)
+                    {
+                        bot->Say(line, (bot->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH));
+                    }
         }
         
         if (ai->DoSpecificAction("guild invite", Event("guild management", guid), true))
@@ -239,6 +250,9 @@ bool GuildManageNearbyAction::isUseful()
 
 bool GuildLeaveAction::Execute(Event& event)
 {
+    if (sPlayerbotAIConfig.windrunnerCompanionMode)
+        return false;
+
     Player* requester = event.getOwner() ? event.getOwner() : GetMaster();
     Player* owner = event.getOwner();
     if (owner && !ai->GetSecurity()->CheckLevelFor(PlayerbotSecurityLevel::PLAYERBOT_SECURITY_GUILD, false, owner, true))

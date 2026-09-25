@@ -8,6 +8,10 @@ using namespace ai;
 
 bool TradeAction::Execute(Event& event)
 {
+    if (sPlayerbotAIConfig.windrunnerCompanionMode &&
+        (!event.getOwner() || event.getOwner() != GetMaster() || !ai->IsOwnerReplyContext()))
+        return false;
+
     std::string text = event.getParam();
 
     if (!bot->GetTrader())

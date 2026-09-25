@@ -36,7 +36,10 @@ bool ArenaTeamAcceptAction::Execute(Event& event)
     if (bot->GetArenaTeamId(at->GetSlot()))
     {
         // bot is already in an arena team
-        bot->Say("Sorry, I am already in such team", LANG_UNIVERSAL);
+        if (!sPlayerbotAIConfig.windrunnerCompanionMode)
+        {
+            bot->Say("Sorry, I am already in such team", LANG_UNIVERSAL);
+        }
         accept = false;
     }
 
@@ -44,7 +47,10 @@ bool ArenaTeamAcceptAction::Execute(Event& event)
     {
         WorldPacket data(CMSG_ARENA_TEAM_ACCEPT);
         bot->GetSession()->HandleArenaTeamAcceptOpcode(data);
-        bot->Say("Thanks for the invite!", LANG_UNIVERSAL);
+        if (!sPlayerbotAIConfig.windrunnerCompanionMode)
+        {
+            bot->Say("Thanks for the invite!", LANG_UNIVERSAL);
+        }
         sLog.outDetail("Bot #%d <%s> accepts Arena Team invite", bot->GetGUIDLow(), bot->GetName());
         return true;
     }

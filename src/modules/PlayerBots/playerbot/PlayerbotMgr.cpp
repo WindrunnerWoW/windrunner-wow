@@ -44,6 +44,25 @@ class CharacterHandler;
 // Pending logins: maps holder pointer to (botGuid, masterAccountId) so the callback can
 // resolve which bot is being added. Cleared on callback completion.
 namespace {
+    bool IsCompanionRecruiterActive()
+    {
+        return sPlayerbotAIConfig.companionRecruiterRegistered &&
+            sConfig.GetBoolDefault("CompanionRecruiter.Enabled", true);
+    }
+
+    bool HasCompanionRecruiterMarker(uint32 guidLow)
+    {
+        return sRandomPlayerbotMgr.GetValue(guidLow, "companion_recruiter") != 0 ||
+            sRandomPlayerbotMgr.GetValue(guidLow, "companion_recruiter_owned") != 0;
+    }
+
+    bool IsRecruiterLoginAuthorized(uint32 guidLow)
+    {
+        return IsCompanionRecruiterActive() && HasCompanionRecruiterMarker(guidLow) &&
+            sPlayerbotAIConfig.companionRecruiterAllowsLogin &&
+            sPlayerbotAIConfig.companionRecruiterAllowsLogin(guidLow);
+    }
+
     struct PendingBotLogin {
         ObjectGuid botGuid;
         uint32 masterAccountId;
@@ -56,6 +75,15 @@ void PlayerbotHolder::AddPlayerBot(uint32 guidLow, uint32 masterAccountId)
 {
     if (!sPlayerbotAIConfig.enabled)
         return;
+
+    // In companion mode only the recruiter may request a bot login. Check here
+    // and again in the async callback so a marker removed while the query is in
+    // flight cannot authorize a stale login.
+    if (sPlayerbotAIConfig.windrunnerCompanionMode && !IsRecruiterLoginAuthorized(guidLow))
+    {
+        sLog.outError("[PlayerBots] Refusing login for bot %u without recruiter ownership", guidLow);
+        return;
+    }
 
     ObjectGuid botGuid(HIGHGUID_PLAYER, guidLow);
 
@@ -180,6 +208,15 @@ void PlayerbotHolder::HandlePlayerBotLoginCallback(QueryResult* /*dummy*/, SqlQu
 
     PendingBotLogin info = it->second;
     m_pendingBotLogins.erase(it);
+
+    if (sPlayerbotAIConfig.windrunnerCompanionMode &&
+        !IsRecruiterLoginAuthorized(info.botGuid.GetCounter()))
+    {
+        sLog.outError("[PlayerBots] Cancelling pending login for bot %u: recruiter ownership was removed",
+                      info.botGuid.GetCounter());
+        delete holder;
+        return;
+    }
 
     if (info.cancelled)
     {
@@ -1392,6 +1429,10 @@ void PlayerbotMgr::OnPlayerLogin(Player* player)
     if (!sPlayerbotAIConfig.enabled)
         return;
 
+    // Companion mode never treats a real player's account alts as bots.
+    if (sPlayerbotAIConfig.windrunnerCompanionMode)
+        return;
+
     // set locale priority for bot texts
     sPlayerbotTextMgr.AddLocalePriority(player->GetSession()->GetSessionDbLocaleIndex());
     sLog.outDetail("Player %s logged in, localeDbc %i, localeDb %i", player->GetName(), (uint32)(player->GetSession()->GetSessionDbcLocale()), player->GetSession()->GetSessionDbLocaleIndex());
@@ -2126,6 +2167,9 @@ std::string PlayerbotHolder::HandleBotAddLogin(Player* bot, Player* master, cons
            master ? master->GetName() : "(null)",
            param.c_str());
 
+    if (sPlayerbotAIConfig.windrunnerCompanionMode)
+        return "Bot login is available through the companion recruiter only";
+
     if (bot)
     {
         SC_LOG("HandleBotAddLogin bot already online — returning early");
@@ -2278,6 +2322,14 @@ void PlayerbotHolder::CreateBot(Player* master, const std::string param, std::li
 {    
     // Allow null master for RA/console usage
     // Player* master can be null when called via .rndbot commands
+
+    if (sPlayerbotAIConfig.windrunnerCompanionMode &&
+        (!IsCompanionRecruiterActive() ||
+         (creationMarker != "companion_recruiter" && creationMarker != "companion_recruiter_owned")))
+    {
+        messages.push_back("Bot creation is available through the companion recruiter only");
+        return;
+    }
 
     std::string name;
     std::string testName;

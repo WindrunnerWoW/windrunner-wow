@@ -8,6 +8,10 @@ ConfVersion=2020072501
 # Enable or disable AI Playerbot
 AiPlayerbot.Enabled = 1
 
+# Only the Windrunner companion recruiter may create or log in bots.
+# Existing bot characters and accounts are retained offline. Restart required.
+AiPlayerbot.WindrunnerCompanionMode = 1
+
 # Enable random bot system
 AiPlayerbot.RandomBotAutologin = 1
 

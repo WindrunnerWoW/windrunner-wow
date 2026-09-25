@@ -7,8 +7,13 @@
 
 namespace ai
 {
-    bool InviteToGroupAction::Invite(Player* inviter, Player* player)
+    bool InviteToGroupAction::Invite(Player* inviter, Player* player, bool requestedJoin)
     {
+        // Companion groups are assembled by the recruiter; generic AI paths
+        // must not invite nearby players into a companion group.
+        if (sPlayerbotAIConfig.windrunnerCompanionMode && !requestedJoin)
+            return false;
+
         if (!player)
             return false;
 
@@ -43,6 +48,8 @@ namespace ai
             return false;
 
         Player* master = event.getOwner();
+        if (!master)
+            return false;
 
         Group* group = master->GetGroup();
 
@@ -75,7 +82,11 @@ namespace ai
         if (bot->GetGroupInvite())
             bot->GetGroupInvite()->RemoveInvite(bot);
 
-        bool invite = Invite(master, bot);
+        bool const recruiterJoin = event.getSource() == "companion recruiter" ||
+            event.getSource() == "companion recruiter owned";
+        bool const requestedJoin = master && master == ai->GetMaster() &&
+            (recruiterJoin || event.IsOwnerCommand());
+        bool invite = Invite(master, bot, requestedJoin);
 
         if (invite && (event.getSource() == "create group"))
         {
@@ -194,6 +205,9 @@ namespace ai
 
     bool LfgAction::Execute(Event& event)
     {
+        if (sPlayerbotAIConfig.windrunnerCompanionMode)
+            return false;
+
         Player* requester = event.getOwner() ? event.getOwner() : GetMaster();
         if (bot->InBattleGround())
             return false;
@@ -292,6 +306,9 @@ namespace ai
 
     bool InviteNearbyToGroupAction::Execute(Event& event)
     {
+        if (sPlayerbotAIConfig.windrunnerCompanionMode)
+            return false;
+
         if (!bot->GetGroup())  //Select a random formation to copy.
         {
             std::vector<std::string> formations = { "melee","queue","chaos","circle","line","shield","arrow","near","far"};
@@ -374,9 +391,19 @@ namespace ai
                     placeholders["%player"] = player->GetName();
 
                     if (group && group->IsRaidGroup())
-                        bot->Say(BOT_TEXT2("join_raid", placeholders), (bot->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH));
+                    {
+                        if (!sPlayerbotAIConfig.windrunnerCompanionMode)
+                        {
+                            bot->Say(BOT_TEXT2("join_raid", placeholders), (bot->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH));
+                        }
+                    }
                     else
-                        bot->Say(BOT_TEXT2("join_group", placeholders), (bot->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH));
+                    {
+                        if (!sPlayerbotAIConfig.windrunnerCompanionMode)
+                        {
+                            bot->Say(BOT_TEXT2("join_group", placeholders), (bot->GetTeam() == ALLIANCE ? LANG_COMMON : LANG_ORCISH));
+                        }
+                    }
                 }
             }
 
@@ -436,6 +463,9 @@ namespace ai
 
     bool InviteGuildToGroupAction::Execute(Event& event)
     {
+        if (sPlayerbotAIConfig.windrunnerCompanionMode)
+            return false;
+
         Guild* guild = sGuildMgr.GetGuildById(bot->GetGuildId());
 
         for (auto& member : getGuildMembers())

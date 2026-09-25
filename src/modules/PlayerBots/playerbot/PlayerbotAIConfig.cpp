@@ -147,6 +147,14 @@ bool PlayerbotAIConfig::Initialize()
     sLog.outString("Bot configuration read from %s.", config.GetFilename().c_str());
 
     enabled = config.GetBoolDefault("AiPlayerbot.Enabled", false);
+    bool configuredCompanionMode = config.GetBoolDefault("AiPlayerbot.WindrunnerCompanionMode", true);
+    if (windrunnerCompanionModeInitialized && configuredCompanionMode != windrunnerCompanionMode)
+        sLog.outError("[PlayerBots] AiPlayerbot.WindrunnerCompanionMode changed in config; restart required to apply it.");
+    else
+    {
+        windrunnerCompanionMode = configuredCompanionMode;
+        windrunnerCompanionModeInitialized = true;
+    }
     companionAutonomyPolicy = config.GetStringDefault("AiPlayerbot.CompanionAutonomyPolicy", "assist");
     autoSaveMana = config.GetBoolDefault("AiPlayerbot.AutoSaveMana", true);
     forceRebuffOnReadyCheck = config.GetBoolDefault("AiPlayerbot.ForceRebuffOnReadyCheck", false);

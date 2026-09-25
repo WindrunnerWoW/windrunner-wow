@@ -19,6 +19,7 @@ namespace ai
             , param(other.param)
             , packet(other.packet)
             , owner(other.owner)
+            , ownerCommand(other.ownerCommand)
         {}
         Event& operator=(Event const& other)
         {
@@ -27,6 +28,7 @@ namespace ai
             param = other.param;
             packet = WorldPacket(other.packet);  // copy-construct + move-assign
             owner = other.owner;
+            ownerCommand = other.ownerCommand;
             return *this;
         }
         Event() {}
@@ -42,6 +44,8 @@ namespace ai
         WorldPacket& getPacket() { return packet; }
         ObjectGuid getObject();
         Player* getOwner() { return owner; }
+        bool IsOwnerCommand() const { return ownerCommand; }
+        void SetOwnerCommand(bool value) { ownerCommand = value; }
         bool operator! () const { return source.empty(); }
 
     protected:
@@ -49,5 +53,6 @@ namespace ai
         std::string param;
         WorldPacket packet;
         Player* owner = nullptr;
+        bool ownerCommand = false;
 	};
 }
