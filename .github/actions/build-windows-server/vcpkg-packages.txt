@@ -1,0 +1,11 @@
+ace:x64-windows
+boost-algorithm:x64-windows
+boost-asio:x64-windows
+boost-bimap:x64-windows
+boost-bind:x64-windows
+boost-filesystem:x64-windows
+boost-functional:x64-windows
+boost-smart-ptr:x64-windows
+boost-stacktrace:x64-windows
+boost-thread:x64-windows
+boost-system:x64-windows
