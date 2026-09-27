@@ -55,6 +55,12 @@ Database.AutoUpdate.WorldUpdateName = "world"
 
 Database.AutoUpdate.AllowedModules = "all"
 
+# Database.AutoUpdate.ModulesPath. Root holding <module>/data/sql/<auth|character|world>/.
+# Empty uses the modules folder of the source tree the server was built from; set it for
+# packaged installs, e.g. the sql/modules/ folder of the SQL bundle.
+
+Database.AutoUpdate.ModulesPath = ""
+
 # Database.AutoUpdate.SortByName. Controls the order in which SQL migration files are applied.  
 #   0 = Sort by file modification time ascending (oldest first); alphabetical name as tiebreaker. (Default)  
 #   1 = Sort alphabetically by file name ascending; modification time as tiebreaker.  

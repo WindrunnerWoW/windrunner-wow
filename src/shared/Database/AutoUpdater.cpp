@@ -500,10 +500,11 @@ namespace DBUpdater
         auto worldUpdateFolder = sConfig.GetStringDefault("Database.AutoUpdate.WorldUpdateName", "World");
         bool sortByName = sConfig.GetBoolDefault("Database.AutoUpdate.SortByName", false);
         path folderPath{ pathString };
+        auto modulesPathString = sConfig.GetStringDefault("Database.AutoUpdate.ModulesPath", "");
 #ifdef TW_SOURCE_MODULES_DIR
-        path modulesPath{ TW_SOURCE_MODULES_DIR };
+        path modulesPath{ modulesPathString.empty() ? std::string{ TW_SOURCE_MODULES_DIR } : modulesPathString };
 #else
-        path modulesPath{ "modules" };
+        path modulesPath{ modulesPathString.empty() ? std::string{ "modules" } : modulesPathString };
 #endif
 
 
