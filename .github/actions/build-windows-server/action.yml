@@ -1,0 +1,300 @@
+name: Build Windows server
+description: >
+  Compiles mangosd/realmd with PlayerBots and modules, validates the install
+  dir, and optionally zips it together with the SQL bundle. Sets ZIP_PATH and
+  SQL_ZIP_PATH in the job env when package is true.
+
+inputs:
+  version:
+    description: Release version written to BUILD_INFO.txt; empty for non-release builds.
+    required: false
+    default: ''
+  package:
+    description: Bundle SQL and zip the install dir.
+    required: false
+    default: 'true'
+  compiler-jobs:
+    description: >
+      Parallel cl.exe processes (/MP) and MSBuild projects. 1 is fully serial;
+      the 4-core runner ran out of headroom with unbounded parallelism.
+    required: false
+    default: '1'
+  build-cache:
+    description: >
+      Restore/save build/ in the Actions cache (branch-scoped) for incremental
+      builds. The job needs actions: write so older build caches can be pruned.
+    required: false
+    default: 'false'
+
+runs:
+  using: composite
+  steps:
+    - name: Checkout submodules
+      shell: bash
+      run: git submodule update --init --recursive
+
+    - name: Archive names and BUILD_INFO
+      shell: bash
+      env:
+        BUILD_VERSION: ${{ inputs.version }}
+      run: |
+        set -euo pipefail
+        sha=$(git rev-parse --short HEAD)
+        info="$RUNNER_TEMP/build-info.txt"
+        {
+          if [ -n "$BUILD_VERSION" ]; then echo "version=$BUILD_VERSION"; fi
+          echo "commit=$GITHUB_SHA"
+          echo "short=$sha"
+          echo "ref=$GITHUB_REF"
+          for module in mod-crafting-storage mod-crafting-orders; do
+            commit=not-included
+            if [ -d "modules/$module/src" ]; then
+              commit=$(git -C "modules/$module" rev-parse HEAD)
+            fi
+            echo "${module//-/_}_commit=$commit"
+          done
+        } > "$info"
+        cat "$info"
+        {
+          echo "BUILD_INFO_FILE=$info"
+          echo "INSTALL_DIR=$GITHUB_WORKSPACE/install"
+          echo "ARCHIVE_NAME=windrunner-wow-windows-server-$sha"
+          echo "SQL_ARCHIVE_NAME=windrunner-wow-sql-$sha"
+        } >> "$GITHUB_ENV"
+
+    # Keyed on the package list only, so editing workflows no longer invalidates
+    # it. Only installed/ is needed; buildtrees/packages/downloads made the
+    # restore ~2 min and the save ~3 min.
+    - name: Cache vcpkg
+      uses: actions/cache@v4
+      with:
+        path: C:/vcpkg/installed
+        key: vcpkg-win-installed-${{ hashFiles('.github/actions/build-windows-server/vcpkg-packages.txt') }}
+
+    - name: ACE + Boost
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [ ! -f /c/vcpkg/vcpkg.exe ]; then
+          git clone --depth 1 https://github.com/microsoft/vcpkg.git /c/vcpkg
+          /c/vcpkg/bootstrap-vcpkg.bat -disableMetrics
+        fi
+        # No CMAKE_TOOLCHAIN_FILE — dep/windows owns OpenSSL/MySQL; toolchain mixes 3.x in.
+        grep -v '^\s*$' "$GITHUB_ACTION_PATH/vcpkg-packages.txt" | tr -d '\r' \
+          | xargs /c/vcpkg/vcpkg.exe install --disable-metrics
+
+    # Objects are only reusable with the same compiler and dependencies, so both
+    # are part of the key; the commit suffix makes each save a new entry.
+    - name: Build cache key
+      id: build-cache-key
+      if: inputs.build-cache == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        vs=$("/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe" -latest -property installationVersion | tr -d '\r')
+        deps='${{ hashFiles('.github/actions/build-windows-server/vcpkg-packages.txt') }}'
+        prefix="win-build-vs$vs-${deps:0:12}-"
+        echo "prefix=$prefix" >> "$GITHUB_OUTPUT"
+        echo "key=$prefix$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+
+    - name: Restore build cache
+      id: build-cache
+      if: inputs.build-cache == 'true'
+      uses: actions/cache/restore@v4
+      with:
+        path: build
+        key: ${{ steps.build-cache-key.outputs.key }}
+        restore-keys: ${{ steps.build-cache-key.outputs.prefix }}
+
+    # MSBuild decides what to recompile by timestamp, and a fresh checkout stamps
+    # every file "now", which would rebuild everything. So: date every tracked
+    # file (submodules included) back to 2000, then touch only files whose blob
+    # differs from the manifest stored with the cached build. A file is only
+    # left old when it is byte-identical to what the cached objects came from.
+    - name: Prepare incremental build
+      if: inputs.build-cache == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        export LC_ALL=C
+        if [ ! -d build ]; then
+          echo 'No cached build dir; full build'
+          exit 0
+        fi
+        if [ ! -f build/.source-manifest ]; then
+          echo 'Cached build dir has no source manifest; discarding it'
+          rm -rf build
+          exit 0
+        fi
+        git ls-files --stage --recurse-submodules | sort > "$RUNNER_TEMP/manifest-now"
+        sort build/.source-manifest > "$RUNNER_TEMP/manifest-cached"
+        git ls-files --recurse-submodules -z | xargs -0 touch -c -m -d '2000-01-01 00:00:00'
+        comm -13 "$RUNNER_TEMP/manifest-cached" "$RUNNER_TEMP/manifest-now" | cut -f2- > "$RUNNER_TEMP/changed"
+        tr '\n' '\0' < "$RUNNER_TEMP/changed" | xargs -0 -r touch -c -m
+        echo "Incremental build: $(wc -l < "$RUNNER_TEMP/changed") of $(wc -l < "$RUNNER_TEMP/manifest-now") tracked files changed since the cached build"
+
+    - name: Configure
+      shell: bash
+      run: |
+        set -uo pipefail
+        v=C:/vcpkg/installed/x64-windows
+        configure() {
+          cmake -B build -A x64 \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DCMAKE_INSTALL_PREFIX="$INSTALL_DIR" \
+            -DBUILD_PLAYERBOTS=ON \
+            -DMODULES=static \
+            -DUSE_EXTRACTORS=ON \
+            -DALLOW_TURTLE_ADDONS=ON \
+            -DACE_ROOT="$v" \
+            -DBOOST_ROOT="$v" \
+            -DBoost_NO_BOOST_CMAKE=ON
+        }
+        if ! configure; then
+          [ -f build/.source-manifest ] || exit 1
+          echo '::warning::Configure failed on the cached build dir; retrying from scratch'
+          rm -rf build
+          configure
+        fi
+
+    - name: Build
+      shell: bash
+      env:
+        _CL_: /MP${{ inputs.compiler-jobs }}
+      run: cmake --build build --config Release --parallel ${{ inputs.compiler-jobs }}
+
+    - name: Record build sources
+      if: inputs.build-cache == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        git ls-files --stage --recurse-submodules > build/.source-manifest
+        echo "build/ is $(du -sh build | cut -f1) before cache compression"
+
+    - name: Save build cache
+      if: inputs.build-cache == 'true' && steps.build-cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@v4
+      with:
+        path: build
+        key: ${{ steps.build-cache-key.outputs.key }}
+
+    # Keep one build cache per branch so the 10 GB repo cache limit is not
+    # spent on superseded builds (LRU eviction would also drop vcpkg).
+    - name: Prune older build caches
+      if: inputs.build-cache == 'true' && steps.build-cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+        KEEP_KEY: ${{ steps.build-cache-key.outputs.key }}
+      run: |
+        gh cache list --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF" --key win-build- --limit 100 \
+            --json id,key --jq ".[] | select(.key != \"$KEEP_KEY\") | .id" \
+          | xargs -r -n1 gh cache delete --repo "$GITHUB_REPOSITORY" \
+          || echo '::warning::Could not prune older build caches'
+
+    - name: Install and validate
+      shell: bash
+      run: |
+        set -euo pipefail
+        cmake --install build --config Release
+        dest="$INSTALL_DIR"
+        cp -f /c/vcpkg/installed/x64-windows/bin/ACE.dll /c/vcpkg/installed/x64-windows/bin/boost_*.dll "$dest/"
+
+        for name in mangosd.exe realmd.exe mangosd.conf realmd.conf mods.conf rate.conf aiplayerbot.conf ahbot.conf; do
+          [ -f "$dest/$name" ] || { echo "::error::missing $name in install dir"; exit 1; }
+        done
+        # Every module config template in the checkout must ship as modules/<name>.conf;
+        # mangosd refuses to start if a config listed by the build is missing.
+        for template in modules/*/conf/*.conf.dist; do
+          [ -e "$template" ] || continue
+          name=$(basename "$template" .dist)
+          [ -f "$dest/modules/$name" ] || { echo "::error::missing module config modules/$name in install dir"; exit 1; }
+          echo "module config: modules/$name"
+        done
+        stale=$(find "$dest" -type f -name '*.conf.dist')
+        if [ -n "$stale" ]; then
+          echo "::error::config templates were installed without renaming: $stale"
+          exit 1
+        fi
+
+        cp "$BUILD_INFO_FILE" "$dest/BUILD_INFO.txt"
+
+    # Same folder names and pass order as AutoUpdater::ProcessUpdates.
+    - name: Bundle SQL
+      if: inputs.package == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        dest="$RUNNER_TEMP/sql-bundle/sql"
+        rm -rf "$RUNNER_TEMP/sql-bundle"
+        mkdir -p "$dest"
+
+        # Copies every *.sql under $1 to $2, keeping the folder layout.
+        copy_sql() {
+          mkdir -p "$2"
+          (cd "$1" && find . -type f -name '*.sql' -print0 | xargs -0 -r cp --parents -t "$2")
+        }
+
+        [ -f sql/create_databases.sql ] || { echo '::error::Required SQL missing: sql/create_databases.sql'; exit 1; }
+        [ -d sql/base ] || { echo '::error::Required SQL missing: sql/base/'; exit 1; }
+        cp sql/create_databases.sql "$dest/"
+        copy_sql sql/base "$dest/base"
+        if [ -d sql/database_updates ]; then
+          copy_sql sql/database_updates "$dest/database_updates"
+        else
+          echo '::warning::sql/database_updates/ missing; bundle will omit migration SQL'
+        fi
+
+        vendored=()
+        for dir in src/modules/*/; do
+          name=$(basename "$dir")
+          [ -d "$dir/sql/world" ] || [ -d "$dir/sql/characters" ] || continue
+          for db in world characters; do
+            if [ -d "$dir/sql/$db" ]; then
+              copy_sql "$dir/sql/$db" "$dest/${name,,}/$db"
+            else
+              echo "::warning::Vendored module $name $db SQL missing"
+            fi
+          done
+          vendored+=("${name,,}")
+        done
+
+        bundled=()
+        for dir in modules/*/; do
+          name=$(basename "$dir")
+          copied=false
+          for db in auth character world; do
+            [ -d "$dir/data/sql/$db" ] || continue
+            copy_sql "$dir/data/sql/$db" "$dest/modules/$name/data/sql/$db"
+            copied=true
+          done
+          if $copied; then bundled+=("$name"); fi
+        done
+
+        vendored_list=$(IFS=,; echo "${vendored[*]}")
+        bundled_list=$(IFS=,; echo "${bundled[*]}")
+        echo "Bundled vendored SQL: ${vendored_list:-(none)}"
+        echo "Bundled module SQL: ${bundled_list:-(none)}"
+        {
+          cat "$BUILD_INFO_FILE"
+          echo "vendored_sql=$vendored_list"
+          echo "bundled_modules=$bundled_list"
+          echo "import_order=create_databases, base, database_updates, playerbots world then characters, modules auth then character then world (modules A-Z, files A-Z)"
+        } > "$dest/BUILD_INFO.txt"
+
+        zip="$GITHUB_WORKSPACE/$SQL_ARCHIVE_NAME.zip"
+        rm -f "$zip"
+        (cd "$RUNNER_TEMP/sql-bundle" && 7z a -tzip -bso0 "$zip" sql)
+        echo "SQL_ZIP_PATH=$zip" >> "$GITHUB_ENV"
+
+    - name: Zip
+      if: inputs.package == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo 'Configs included in server zip:'
+        (cd "$INSTALL_DIR" && find . -type f -name '*.conf' | sed 's|^\./|  |')
+        zip="$GITHUB_WORKSPACE/$ARCHIVE_NAME.zip"
+        rm -f "$zip"
+        (cd "$INSTALL_DIR" && 7z a -tzip -bso0 "$zip" '*')
+        echo "ZIP_PATH=$zip" >> "$GITHUB_ENV"
