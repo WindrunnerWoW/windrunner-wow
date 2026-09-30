@@ -16,6 +16,7 @@
 // in their own commit.
 
 #include "playerbot/playerbot.h"
+#include "playerbot/BgFillerMgr.h"
 #include "Objects/Player.h"
 #include "ByteBuffer.h"
 #include "Log.h"
@@ -49,6 +50,7 @@ class PlayerbotWorldScript : public WorldScript
                 if (!sPlayerbotAIConfig.companionRecruiterRegistered ||
                     !sConfig.GetBoolDefault("CompanionRecruiter.Enabled", true))
                     sLog.outError("[PlayerBots] WindrunnerCompanionMode is enabled, but CompanionRecruiter is absent or disabled; bots will remain offline.");
+                sBgFillerMgr.OnStartup();
                 auctionbot.Init();
                 return;
             }
@@ -65,6 +67,8 @@ class PlayerbotWorldScript : public WorldScript
             // In companion mode this keeps recruiter companions alive while
             // preventing all random population and lifecycle processing.
             sRandomPlayerbotMgr.UpdateAI(diff);
+            if (sPlayerbotAIConfig.windrunnerCompanionMode)
+                sBgFillerMgr.Update(diff);
             auctionbot.Update();
         }
 };

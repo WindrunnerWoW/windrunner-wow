@@ -391,6 +391,29 @@ AiPlayerbot.AutoReviveWithoutRezzer = 1
 # Default: 5
 AiPlayerbot.AutoReviveDelay = 5
 
+# Battleground filler (companion mode only). The random-bot pool is offline in companion mode, so nothing
+# else would ever queue for a battleground. When a real player queues, temporary bots of that level bracket
+# (close to the player's level) are created for BOTH factions, geared and talented, queued, and deleted
+# again after their battleground ends or when the player leaves the queue. They use the random-bot
+# account pool and are cleaned up on server start if the server went down while they existed.
+# Default: 1 (enabled)
+AiPlayerbot.BgFiller.Enabled = 1
+
+# Fill each team up to the battleground's maximum size (1) or only to its minimum size to start (0).
+AiPlayerbot.BgFiller.FillToMax = 1
+
+# Upper limit per team (0 = the battleground's own limit). Alterac Valley would otherwise want 40 per side.
+AiPlayerbot.BgFiller.MaxPerTeam = 15
+
+# Upper limit of filler bots online at the same time, all battlegrounds together.
+AiPlayerbot.BgFiller.MaxTotal = 60
+
+# Filler bots created per 5 second scan (creation and preparation are paced to protect the world tick).
+AiPlayerbot.BgFiller.CreatePerScan = 4
+
+# A filler that has not been invited after this many seconds is removed.
+AiPlayerbot.BgFiller.QueueTimeoutSeconds = 900
+
 # Bot automatically picks talent points based on current spec (full = pick spec based on probability if multiple are like current spec, semi = only apply points if 1 spec looks like current spec, no = no auto talent points)
 AiPlayerbot.AutoPickTalents = full
 
