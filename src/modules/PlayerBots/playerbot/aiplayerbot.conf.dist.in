@@ -439,6 +439,16 @@ AiPlayerbot.AutoMaintenanceOnMasterVendor = 1
 # Default: 0 (disabled)
 AiPlayerbot.CompanionBuffOutOfGroup = 0
 
+# Companions that die while nobody alive in the group can resurrect them (no living priest, paladin or
+# shaman - druid Rebirth does not count) get back up on their own once everyone still standing is out of
+# combat and their master is alive, instead of waiting for a "corpse run" command.
+# Default: 1 (enabled)
+AiPlayerbot.AutoReviveWithoutRezzer = 1
+
+# Seconds the group must be out of combat before such a companion revives.
+# Default: 5
+AiPlayerbot.AutoReviveDelay = 5
+
 # Bot automatically picks talent points based on current spec (full = pick spec based on probability if multiple are like current spec, semi = only apply points if 1 spec looks like current spec, no = no auto talent points)
 AiPlayerbot.AutoPickTalents = full
 

@@ -22,6 +22,7 @@
 #include "Map.h"
 #include "Player.h"
 #include "PlayerbotAI.h"
+#include "playerbot/strategy/actions/AutoReviveAction.h"
 #include "Playerbots.h"
 #include "Timer.h"
 
@@ -251,6 +252,35 @@ namespace
         in.noRezzerHoldMaxMs = DC_NO_REZZER_HOLD_MAX_MS;
 
         plan.verdict = DcRezDecision::Decide(in, members);
+
+        // No rezzer left is not the end of the run when every corpse is a
+        // companion PlayerBots' auto revive will stand back up once the party
+        // is quiet (AiPlayerbot.AutoReviveWithoutRezzer). Hold for that instead
+        // of disabling; the next evaluation after they revive sees no deaths.
+        if (plan.verdict.outcome == DcRezDecision::Outcome::Disable &&
+            plan.verdict.reason == DcRezDecision::Reason::NoRezzer)
+        {
+            bool anyDead = false;
+            bool allAutoRevive = true;
+            for (Player* p : players)
+            {
+                if (!p || !p->isDead())
+                    continue;
+                anyDead = true;
+                if (!ai::AutoReviveAction::WillAutoRevive(p))
+                {
+                    allAutoRevive = false;
+                    break;
+                }
+            }
+
+            if (anyDead && allAutoRevive)
+            {
+                plan.verdict.outcome = DcRezDecision::Outcome::Hold;
+                plan.verdict.reason = DcRezDecision::Reason::NoRezzerInFight;
+                plan.verdict.targetIdx = DcRezDecision::PickTarget(members);
+            }
+        }
 
         // Advance the floor's clocks from the verdict we just got. They can only be
         // stamped after the fact — whether a rezzer is left is precisely what the
