@@ -17,6 +17,8 @@ namespace ai
         // What the group is actually fighting: the tank's (or else the master's)
         // target, provided it is already one of our attackers.
         Unit* GetGroupFocusTarget(const std::list<ObjectGuid>& attackers);
+        // Skull, then cross - only once they are in the fight.
+        Unit* GetMarkedTarget(const std::list<ObjectGuid>& attackers);
     };
 
     class DpsAoeTargetValue : public RtiTargetValue

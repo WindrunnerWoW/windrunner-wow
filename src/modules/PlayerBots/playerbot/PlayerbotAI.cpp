@@ -3273,6 +3273,25 @@ bool PlayerbotAI::IsDps(Player* player, bool inGroup)
     return !IsTank(player, inGroup) && !IsHeal(player, inGroup);
 }
 
+bool PlayerbotAI::HasBreakableCc(Unit* unit)
+{
+    if (!unit)
+        return false;
+
+    for (auto const& holder : unit->GetSpellAuraHolderMap())
+    {
+        SpellAuraHolder* aura = holder.second;
+        if (!aura || aura->IsPositive())
+            continue;
+
+        SpellEntry const* proto = aura->GetSpellProto();
+        if (proto && proto->HasAuraInterruptFlag(AURA_INTERRUPT_FLAG_DAMAGE))
+            return true;
+    }
+
+    return false;
+}
+
 bool PlayerbotAI::IsMainTank(Player* player)
 {
     if (!player)

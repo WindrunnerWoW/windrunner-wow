@@ -116,6 +116,13 @@ bool PossibleAttackTargetsValue::HasBreakableCC(Unit* target, Player* player)
         return true;
     }
 
+    // Anything that ends on damage: Freezing Trap, Hibernate, Wyvern Sting,
+    // Seduction, ... (not just the handful named below).
+    if (PlayerbotAI::HasBreakableCc(target))
+    {
+        return true;
+    }
+
     if (sServerFacade.IsFrozen(target))
     {
         return true;
@@ -145,17 +152,12 @@ bool PossibleAttackTargetsValue::HasBreakableCC(Unit* target, Player* player)
 
 bool PossibleAttackTargetsValue::HasUnBreakableCC(Unit* target, Player* player)
 {
-    if (target->IsStunned())
-    {
-        return true;
-    }
-
+    // Stuns and roots are NOT a reason to leave a mob alone: a Kidney Shot,
+    // Concussion Blow or Frost Nova is exactly when the group should be
+    // hitting it. Treating them as CC made DPS drop their target the moment
+    // it got stunned. Stuns that do end on damage (Sap, Freezing Trap,
+    // Shackle, ...) are caught by HasBreakableCC.
     if (sServerFacade.IsFeared(target))
-    {
-        return true;
-    }
-
-    if (sServerFacade.IsInRoots(target))
     {
         return true;
     }

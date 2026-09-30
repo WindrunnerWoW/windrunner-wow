@@ -19,13 +19,20 @@ namespace ai
             ObjectGuid playerGuid;
             p >> playerGuid;
 
-            // do not auto duel with low hp or below certain level
+            bool const fromMaster = ai->GetMaster() && ai->GetMaster()->GetObjectGuid() == playerGuid;
+
+            // do not auto duel with low hp or below certain level. Companions
+            // only duel their own master: a stranger's challenge would pull
+            // them out of the group.
             if (bot->GetLevel() < sPlayerbotAIConfig.botAcceptDuelMinimumLevel
-                || ((!ai->HasRealPlayerMaster() || (ai->GetMaster() && ai->GetMaster()->GetObjectGuid() != playerGuid)) && AI_VALUE2(uint8, "health", "self target") < 90))
+                || (ai->HasRealPlayerMaster() && !fromMaster)
+                || (!fromMaster && AI_VALUE2(uint8, "health", "self target") < 90))
             {
                 WorldPacket packet(CMSG_DUEL_CANCELLED, 8);
                 packet << flagGuid;
                 bot->GetSession()->HandleDuelCancelledOpcode(packet);
+                // Used to fall through and accept the duel it had just declined.
+                return true;
             }
 
             WorldPacket packet(CMSG_DUEL_ACCEPTED, 8);

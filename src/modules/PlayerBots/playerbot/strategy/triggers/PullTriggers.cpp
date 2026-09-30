@@ -31,6 +31,16 @@ bool ShouldPullTrigger::IsActive()
     if (!group)
         return false;
 
+    // With a real player in charge the pace is theirs: never pull while they
+    // are dead, out of sight behind the group, or on another map.
+    if (ai->HasRealPlayerMaster())
+    {
+        Player* master = ai->GetMaster();
+        if (!master || !master->IsAlive() || master->GetMapId() != bot->GetMapId() ||
+            !bot->IsWithinDistInMap(master, 40.0f, false))
+            return false;
+    }
+
     for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
     {
         Player* member = ref->getSource();
@@ -40,6 +50,15 @@ bool ShouldPullTrigger::IsActive()
         // Never pull on top of a fight that is still running, and never onto a
         // corpse - somebody has to be raised first.
         if (member->IsInCombat() || !member->IsAlive())
+            return false;
+
+        // Wait for stragglers (still eating, catching up after a res, ...)
+        // instead of pulling with half the group out of range.
+        if (member != bot && !bot->IsWithinDistInMap(member, 40.0f, false))
+            return false;
+
+        // Sitting = eating/drinking. Let them finish.
+        if (!member->IsStandState())
             return false;
 
         // The healer decides the pace. Pulling with an empty healer is how a
