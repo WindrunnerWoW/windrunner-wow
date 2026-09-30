@@ -1157,7 +1157,10 @@ AiPlayerbot.JumpChase = 1
 AiPlayerbot.UseKnockback = 1
 
 # Set 'wander' as a default following strategy instead of 'follow' (Bots have freedom to move around while near master)
-#AiPlayerbot.UseWanderAsDefaultFollowStrategy = 1
+# Wander lets bots stop following anywhere within 30 yards of the master, which leaves them strung out behind
+# the group (and pulling patrols) in dungeons. Group-focused companions should keep this off.
+# Default: 0 (follow)
+AiPlayerbot.UseWanderAsDefaultFollowStrategy = 0
 
 # Default bot formation
 #AiPlayerbot.DefaultFormation = near

@@ -645,7 +645,7 @@ bool PlayerbotAIConfig::Initialize()
         BotLog::Instance().Initialize(botLogFile.c_str(), logsDir.c_str(), botLogDebug);
     }
     enableOffSpecStrategies = config.GetBoolDefault("AiPlayerbot.EnableOffSpecStrategies", true);
-    useWanderAsDefaultFollowStrategy = config.GetBoolDefault("AiPlayerbot.UseWanderAsDefaultFollowStrategy", true);
+    useWanderAsDefaultFollowStrategy = config.GetBoolDefault("AiPlayerbot.UseWanderAsDefaultFollowStrategy", false);
     defaultFormation = config.GetStringDefault("AiPlayerbot.DefaultFormation", "near");
 
     guildMaxBotLimit = config.GetIntDefault("AiPlayerbot.GuildMaxBotLimit", 1000);
