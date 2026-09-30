@@ -252,9 +252,42 @@ bool CastBlessingOnPartyAction::isPossible()
             SetSpellName(blessing);
             return CastSpellAction::isPossible();
         }
+
+        // "party member without my aura" keeps returning the first member that
+        // lacks one of *my* blessings. If every blessing this paladin could give
+        // is already on that member (another paladin got there first) nothing is
+        // ever cast and the rest of the party is never reached. Park the member.
+        bool allPresent = true;
+        for (const std::string& possible : GetPossibleBlessingsForTarget(target))
+        {
+            if (!AI_VALUE2(uint32, "spell id", possible))
+                continue;
+
+            if (!ai->HasAura(possible, target) && !ai->HasAura("greater " + possible, target))
+            {
+                allPresent = false;
+                break;
+            }
+        }
+
+        if (allPresent)
+        {
+            for (const std::string& possible : GetPossibleBlessingsForTarget(target))
+                ai->SuppressBuffAttempt(possible, target);
+        }
     }
 
     return false;
+}
+
+bool CastBlessingOnPartyAction::Execute(Event& event)
+{
+    Unit* target = GetTarget();
+    bool executed = CastSpellAction::Execute(event);
+    if (executed && target)
+        ai->NoteBuffAttempt(GetSpellName(), target);
+
+    return executed;
 }
 
 std::string CastBlessingOnPartyAction::GetBlessingForTarget(Unit* target)
