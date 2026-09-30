@@ -1,4 +1,5 @@
 #include "playerbot/playerbot.h"
+#include "BgFillerMgr.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "PlayerbotDbStore.h"
 #include "playerbot/PlayerbotFactory.h"
@@ -58,6 +59,10 @@ namespace {
 
     bool IsRecruiterLoginAuthorized(uint32 guidLow)
     {
+        // Battleground fillers are the other bots companion mode lets in.
+        if (sBgFillerMgr.AllowsLogin(guidLow))
+            return true;
+
         return IsCompanionRecruiterActive() && HasCompanionRecruiterMarker(guidLow) &&
             sPlayerbotAIConfig.companionRecruiterAllowsLogin &&
             sPlayerbotAIConfig.companionRecruiterAllowsLogin(guidLow);
@@ -2326,7 +2331,8 @@ void PlayerbotHolder::CreateBot(Player* master, const std::string param, std::li
     // Allow null master for RA/console usage
     // Player* master can be null when called via .rndbot commands
 
-    if (sPlayerbotAIConfig.windrunnerCompanionMode &&
+    bool const bgFillerCreation = creationMarker == BgFillerMgr::Marker() && BgFillerMgr::Enabled();
+    if (sPlayerbotAIConfig.windrunnerCompanionMode && !bgFillerCreation &&
         (!IsCompanionRecruiterActive() ||
          (creationMarker != "companion_recruiter" && creationMarker != "companion_recruiter_owned")))
     {
