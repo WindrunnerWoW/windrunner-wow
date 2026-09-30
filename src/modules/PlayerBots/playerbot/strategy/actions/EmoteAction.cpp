@@ -844,6 +844,10 @@ bool EmoteAction::isUseful()
 
 bool TalkAction::Execute(Event& event)
 {
+    // Ambient talk is disabled here. The recruiter supplies its own dialogue.
+    if (sPlayerbotAIConfig.windrunnerCompanionMode)
+        return false;
+
     Unit* target = ai->GetUnit(AI_VALUE(ObjectGuid, "talk target"));
     if (!target)
         target = GetTarget();

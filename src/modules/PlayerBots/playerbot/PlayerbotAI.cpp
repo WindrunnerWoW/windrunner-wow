@@ -807,8 +807,8 @@ void PlayerbotAI::UpdateAI(uint32 elapsed, bool minimal)
         }
     }
 
-    // Alt level sync - level up non-random bots to match master level
-    if (sPlayerbotAIConfig.syncAltLevelToMaster && bot->IsAlive() && master && !sRandomPlayerbotMgr.IsRandomBot(bot)
+    // Bots with XP gain disabled keep their current level.
+    if (sPlayerbotAIConfig.syncAltLevelToMaster && bot->HasXPGainEnabled() && bot->IsAlive() && master && !sRandomPlayerbotMgr.IsRandomBot(bot)
         && bot->GetGroup() && master->GetGroup() && IsSafe(master) && bot->GetGroup()->GetLeaderGuid() == master->GetObjectGuid())
     {
         uint32 botLevel = bot->GetLevel();
