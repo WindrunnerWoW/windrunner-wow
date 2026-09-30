@@ -239,6 +239,7 @@ namespace ai
             creators["unstuck"] = [](PlayerbotAI* ai) { return new UnstuckAction(ai); };
             creators["reset"] = [](PlayerbotAI* ai) { return new ResetAction(ai); };
             creators["interrupt current spell"] = [](PlayerbotAI* ai) { return new InterruptCurrentSpellAction(ai); };
+            creators["cancel channel"] = [](PlayerbotAI* ai) { return new CancelChannelAction(ai); };
             creators["initialize pet"] = [](PlayerbotAI* ai) { return new InitializePetAction(ai); };
 
             // item helpers
