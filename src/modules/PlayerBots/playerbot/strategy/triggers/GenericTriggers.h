@@ -326,6 +326,15 @@ namespace ai
         RangedVeryHighAoeTrigger(PlayerbotAI* ai) : AoeTrigger(ai, 10) {}
     };
 
+    // Channelling a ground AoE over nothing (the pack died or walked out), or
+    // over a mob someone has crowd-controlled.
+    class WastedAoeChannelTrigger : public Trigger
+    {
+    public:
+        WastedAoeChannelTrigger(PlayerbotAI* ai) : Trigger(ai, "wasted aoe channel") {}
+        bool IsActive() override;
+    };
+
     class BuffTrigger : public SpellTrigger
     {
     public:
