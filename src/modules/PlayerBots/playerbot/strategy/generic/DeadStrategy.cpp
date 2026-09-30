@@ -22,6 +22,11 @@ void DeadStrategy::InitDeadTriggers(std::list<TriggerNode*>& triggers)
         "very often",
         NextAction::array(0, new NextAction("self resurrect", relevance + 3.0f), NULL)));
 
+    // Nobody alive in the group can resurrect us: get up once the fight is over.
+    triggers.push_back(new TriggerNode(
+        "very often",
+        NextAction::array(0, new NextAction("auto revive", relevance + 2.5f), NULL)));
+
     triggers.push_back(new TriggerNode(
         "val::should spirit healer",
         NextAction::array(0, new NextAction("spirit healer", relevance + 2.0f), NULL)));

@@ -390,6 +390,15 @@ public:
     bool syncQuestForPlayer;
     std::string autoTrainSpells;
     bool autoMaintenanceOnMasterVendor;
+    bool companionBuffOutOfGroup;
+    bool autoReviveWithoutRezzer;
+    bool bgFillerEnabled;
+    bool bgFillerFillToMax;
+    uint32 bgFillerMaxPerTeam;
+    uint32 bgFillerMaxTotal;
+    uint32 bgFillerCreatePerScan;
+    uint32 bgFillerQueueTimeout;
+    uint32 autoReviveDelay;
     std::string autoPickTalents;
     bool autoLearnTrainerSpells;
     bool autoLearnQuestSpells;

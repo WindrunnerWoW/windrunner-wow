@@ -376,6 +376,44 @@ AiPlayerbot.AutoTrainSpells = yes
 # Default: 1 (enabled)
 AiPlayerbot.AutoMaintenanceOnMasterVendor = 1
 
+# Bots controlled by a real player (companions) normally only buff, heal and dispel their own group.
+# Set to 1 to let them also buff/heal random nearby players who are not in the group (walking over to them).
+# Default: 0 (disabled)
+AiPlayerbot.CompanionBuffOutOfGroup = 0
+
+# Companions that die while nobody alive in the group can resurrect them (no living priest, paladin or
+# shaman - druid Rebirth does not count) get back up on their own once everyone still standing is out of
+# combat and their master is alive, instead of waiting for a "corpse run" command.
+# Default: 1 (enabled)
+AiPlayerbot.AutoReviveWithoutRezzer = 1
+
+# Seconds the group must be out of combat before such a companion revives.
+# Default: 5
+AiPlayerbot.AutoReviveDelay = 5
+
+# Battleground filler (companion mode only). The random-bot pool is offline in companion mode, so nothing
+# else would ever queue for a battleground. When a real player queues, temporary bots of that level bracket
+# (close to the player's level) are created for BOTH factions, geared and talented, queued, and deleted
+# again after their battleground ends or when the player leaves the queue. They use the random-bot
+# account pool and are cleaned up on server start if the server went down while they existed.
+# Default: 1 (enabled)
+AiPlayerbot.BgFiller.Enabled = 1
+
+# Fill each team up to the battleground's maximum size (1) or only to its minimum size to start (0).
+AiPlayerbot.BgFiller.FillToMax = 1
+
+# Upper limit per team (0 = the battleground's own limit). Alterac Valley would otherwise want 40 per side.
+AiPlayerbot.BgFiller.MaxPerTeam = 15
+
+# Upper limit of filler bots online at the same time, all battlegrounds together.
+AiPlayerbot.BgFiller.MaxTotal = 60
+
+# Filler bots created per 5 second scan (creation and preparation are paced to protect the world tick).
+AiPlayerbot.BgFiller.CreatePerScan = 4
+
+# A filler that has not been invited after this many seconds is removed.
+AiPlayerbot.BgFiller.QueueTimeoutSeconds = 900
+
 # Bot automatically picks talent points based on current spec (full = pick spec based on probability if multiple are like current spec, semi = only apply points if 1 spec looks like current spec, no = no auto talent points)
 AiPlayerbot.AutoPickTalents = full
 
@@ -904,6 +942,9 @@ AiPlayerbot.FleeingEnabled = 1
 #AiPlayerbot.LowMana = 15
 #AiPlayerbot.MediumMana = 40
 
+# Default strategies added on top of the talent-based ones. Role strategies (dps/heal/tank and
+# dps assist/tank assist/dps aoe) are ignored here - the bot's talents decide its role. Player-controlled
+# companions (WindrunnerCompanionMode) never get grind/tfish/rpg/travel here: they stay with the group.
 # Random bot default strategies (applied after defaults)
 #AiPlayerbot.RandomBotCombatStrategies = +dps,+dps assist,-threat
 #AiPlayerbot.RandomBotNonCombatStrategies = +grind,+loot,+rpg,+custom::say
@@ -976,7 +1017,10 @@ AiPlayerbot.RandomBotCountChangeMaxInterval = 7200
 AiPlayerbot.RandomBotTeleportDistance = 100
 
 # Set 'wander' as a default following strategy instead of 'follow' (Bots have freedom to move around while near master)
-#AiPlayerbot.UseWanderAsDefaultFollowStrategy = 1
+# Wander lets bots stop following anywhere within 30 yards of the master, which leaves them strung out behind
+# the group (and pulling patrols) in dungeons. Group-focused companions should keep this off.
+# Default: 0 (follow)
+AiPlayerbot.UseWanderAsDefaultFollowStrategy = 0
 
 # Default bot formation
 #AiPlayerbot.DefaultFormation = near

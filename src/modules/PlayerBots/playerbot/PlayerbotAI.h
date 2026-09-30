@@ -408,6 +408,9 @@ public:
     static bool IsHeal(Player* player, bool inGroup = true);
     static bool IsDps(Player* player, bool inGroup = true);
     static bool IsMainTank(Player* player);
+    // True when the unit is held by crowd control that breaks on damage
+    // (Polymorph, Sap, Freezing Trap, Shackle, Hibernate, ...).
+    static bool HasBreakableCc(Unit* unit);
     static bool IsAssistTank(Player* player);
     static bool IsAssistTankOfIndex(Player* player, uint8 index, bool ignoreDeadPlayers = false);
     bool IsRanged(Player* player, bool inGroup = true);
@@ -758,6 +761,18 @@ public:
     bool IsForceRebuffBuffCompleted(const std::string& spell, Unit* target) const;
     void MarkForceRebuffBuffCompleted(const std::string& spell, Unit* target);
 
+    // Buff attempt tracking. A buff cast can start successfully and still never
+    // land (target in GM invisibility, phased, immune, aura replaced by a
+    // server-side variant ...). Without this the trigger fires again on the very
+    // next tick and the bot keeps recasting forever. Targets that keep failing
+    // are skipped for a while so the rest of the party still gets buffed.
+    void NoteBuffAttempt(const std::string& spell, Unit* target);
+    void ClearBuffAttempt(const std::string& spell, Unit* target);
+    bool IsBuffAttemptBlocked(const std::string& spell, Unit* target);
+    // Skip (spell, target) for the give-up period without casting, e.g. when
+    // the target already carries everything this bot could give it.
+    void SuppressBuffAttempt(const std::string& spell, Unit* target);
+
     void OnCombatStarted();
     void OnCombatEnded();
     void OnDeath();
@@ -883,6 +898,14 @@ protected:
     bool forceRebuffBuffWorkThisCycle = false;
     time_t forceRebuffStartTime = 0;
     std::set<std::string> forceRebuffCompletedBuffs;
+
+    struct BuffAttempt
+    {
+        time_t firstAttempt = 0;
+        time_t lastAttempt = 0;
+        uint8 attempts = 0;
+    };
+    std::map<std::string, BuffAttempt> buffAttempts;
 
 public:
     void RecordMessages(bool record, bool incomming = false) { m_recordMessages = record; m_recordIncommingMessages = incomming; if (!record) m_recordedMessages.clear(); }

@@ -274,28 +274,32 @@ namespace ai
         float range;
     };
 
+    // Distance from the bot to the centre of the pack. Centre-to-centre, so a
+    // bit more than melee range to cover large mobs that are still in reach.
+    constexpr float MELEE_AOE_REACH = 8.0f;
+
     class MeleeLightAoeTrigger : public AoeTrigger
     {
     public:
-        MeleeLightAoeTrigger(PlayerbotAI* ai) : AoeTrigger(ai, 2, 5.0f) {}
+        MeleeLightAoeTrigger(PlayerbotAI* ai) : AoeTrigger(ai, 2, MELEE_AOE_REACH) {}
     };
 
     class MeleeMediumAoeTrigger : public AoeTrigger
     {
     public:
-        MeleeMediumAoeTrigger(PlayerbotAI* ai) : AoeTrigger(ai, 3, 5.0f) {}
+        MeleeMediumAoeTrigger(PlayerbotAI* ai) : AoeTrigger(ai, 3, MELEE_AOE_REACH) {}
     };
 
     class MeleeHighAoeTrigger : public AoeTrigger
     {
     public:
-        MeleeHighAoeTrigger(PlayerbotAI* ai) : AoeTrigger(ai, 6, 5.0f) {}
+        MeleeHighAoeTrigger(PlayerbotAI* ai) : AoeTrigger(ai, 6, MELEE_AOE_REACH) {}
     };
 
     class MeleeVeryHighAoeTrigger : public AoeTrigger
     {
     public:
-        MeleeVeryHighAoeTrigger(PlayerbotAI* ai) : AoeTrigger(ai, 10, 5.0f) {}
+        MeleeVeryHighAoeTrigger(PlayerbotAI* ai) : AoeTrigger(ai, 10, MELEE_AOE_REACH) {}
     };
 
     class RangedLightAoeTrigger : public AoeTrigger
@@ -320,6 +324,15 @@ namespace ai
     {
     public:
         RangedVeryHighAoeTrigger(PlayerbotAI* ai) : AoeTrigger(ai, 10) {}
+    };
+
+    // Channelling a ground AoE over nothing (the pack died or walked out), or
+    // over a mob someone has crowd-controlled.
+    class WastedAoeChannelTrigger : public Trigger
+    {
+    public:
+        WastedAoeChannelTrigger(PlayerbotAI* ai) : Trigger(ai, "wasted aoe channel") {}
+        bool IsActive() override;
     };
 
     class BuffTrigger : public SpellTrigger

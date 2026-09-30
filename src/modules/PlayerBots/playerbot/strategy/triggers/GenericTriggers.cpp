@@ -210,7 +210,13 @@ bool BuffTrigger::IsActive()
         return true;
     }
 
-    return !ai->HasAura(spell, target, false, checkIsOwner);
+    if (ai->HasAura(spell, target, false, checkIsOwner))
+    {
+        ai->ClearBuffAttempt(spell, target);
+        return false;
+    }
+
+    return !ai->IsBuffAttemptBlocked(spell, target);
 }
 
 bool MyBuffTrigger::IsActive()
@@ -225,7 +231,16 @@ bool MyBuffTrigger::IsActive()
         return true;
     }
 
-    return target && !ai->HasMyAura(spell, target);
+    if (!target)
+        return false;
+
+    if (ai->HasMyAura(spell, target))
+    {
+        ai->ClearBuffAttempt(spell, target);
+        return false;
+    }
+
+    return !ai->IsBuffAttemptBlocked(spell, target);
 }
 
 Value<Unit*>* BuffOnPartyTrigger::GetTargetValue()
@@ -334,7 +349,50 @@ bool NoThreatTrigger::IsActive()
 bool AoeTrigger::IsActive()
 {
     std::list<ObjectGuid> aoeEnemies = AoeCountValue::FindMaxDensity(bot, range);
-    return aoeEnemies.size() >= amount;
+    if (aoeEnemies.size() < amount)
+        return false;
+
+    // Never AoE a pack that contains a crowd-controlled mob.
+    for (const ObjectGuid& guid : aoeEnemies)
+    {
+        Unit* unit = ai->GetUnit(guid);
+        if (unit && PlayerbotAI::HasBreakableCc(unit))
+            return false;
+    }
+
+    return true;
+}
+
+bool WastedAoeChannelTrigger::IsActive()
+{
+    Spell* spell = bot->GetCurrentSpell(CURRENT_CHANNELED_SPELL);
+    if (!spell || !spell->m_spellInfo || !(spell->m_targets.m_targetMask & TARGET_FLAG_DEST_LOCATION))
+        return false;
+
+    float radius = 0.0f;
+    for (uint32 i = 0; i < MAX_EFFECT_INDEX; ++i)
+        radius = std::max(radius, Spells::GetSpellRadius(sSpellRadiusStore.LookupEntry(spell->m_spellInfo->EffectRadiusIndex[i])));
+    if (radius <= 0.0f)
+        return false;
+
+    float x, y, z;
+    spell->m_targets.getDestination(x, y, z);
+
+    uint32 inArea = 0;
+    for (const ObjectGuid& guid : AI_VALUE(std::list<ObjectGuid>, "attackers"))
+    {
+        Unit* unit = ai->GetUnit(guid);
+        if (!unit || !unit->IsAlive() || !unit->IsWithinDist3d(x, y, z, radius))
+            continue;
+
+        // Keep ticking and the sheep breaks.
+        if (PlayerbotAI::HasBreakableCc(unit))
+            return true;
+
+        ++inArea;
+    }
+
+    return inArea == 0;
 }
 
 bool DebuffTrigger::IsActive()
