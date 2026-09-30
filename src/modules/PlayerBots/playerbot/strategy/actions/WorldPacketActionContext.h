@@ -28,6 +28,7 @@
 #include "BattleGroundJoinAction.h"
 #include "SeeSpellAction.h"
 #include "ArenaTeamActions.h"
+#include "AutoReviveAction.h"
 
 namespace ai
 {
@@ -63,6 +64,7 @@ namespace ai
             creators["revive from corpse"] = [](PlayerbotAI* ai) { return new ReviveFromCorpseAction(ai); };
             creators["find corpse"] = [](PlayerbotAI* ai) { return new FindCorpseAction(ai); };
             creators["auto release"] = [](PlayerbotAI* ai) { return new AutoReleaseSpiritAction(ai); };
+            creators["auto revive"] = [](PlayerbotAI* ai) { return new AutoReviveAction(ai); };
             creators["accept resurrect"] = [](PlayerbotAI* ai) { return new AcceptResurrectAction(ai); };
             creators["use meeting stone"] = [](PlayerbotAI* ai) { return new UseMeetingStoneAction(ai); };
             creators["accept summon"] = [](PlayerbotAI* ai) { return new AcceptSummonAction(ai); };

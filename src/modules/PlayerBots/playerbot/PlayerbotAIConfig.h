@@ -391,6 +391,8 @@ public:
     std::string autoTrainSpells;
     bool autoMaintenanceOnMasterVendor;
     bool companionBuffOutOfGroup;
+    bool autoReviveWithoutRezzer;
+    uint32 autoReviveDelay;
     std::string autoPickTalents;
     bool autoLearnTrainerSpells;
     bool autoLearnQuestSpells;
