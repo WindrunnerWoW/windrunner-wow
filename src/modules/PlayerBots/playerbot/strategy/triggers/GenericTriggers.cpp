@@ -349,7 +349,18 @@ bool NoThreatTrigger::IsActive()
 bool AoeTrigger::IsActive()
 {
     std::list<ObjectGuid> aoeEnemies = AoeCountValue::FindMaxDensity(bot, range);
-    return aoeEnemies.size() >= amount;
+    if (aoeEnemies.size() < amount)
+        return false;
+
+    // Never AoE a pack that contains a crowd-controlled mob.
+    for (const ObjectGuid& guid : aoeEnemies)
+    {
+        Unit* unit = ai->GetUnit(guid);
+        if (unit && PlayerbotAI::HasBreakableCc(unit))
+            return false;
+    }
+
+    return true;
 }
 
 bool DebuffTrigger::IsActive()

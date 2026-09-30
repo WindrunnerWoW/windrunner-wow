@@ -86,12 +86,42 @@ Unit* DpsTargetValue::GetGroupFocusTarget(const std::list<ObjectGuid>& attackers
     return nullptr;
 }
 
+Unit* DpsTargetValue::GetMarkedTarget(const std::list<ObjectGuid>& attackers)
+{
+    // Skull (or whatever "rti" is set to) first. A player-led group marks the
+    // *next* pack while still fighting this one, so for companions a mark only
+    // counts once that mob is actually in the fight - otherwise bots run off
+    // and pull it.
+    bool const onlyEngaged = ai->HasActivePlayerMaster();
+    CcTargetCheck ccCheck(ai);
+
+    Unit* rti = RtiTargetValue::Calculate();
+    if (rti && (!onlyEngaged || IsAttacker(attackers, rti)) && !ccCheck.IsCc(rti))
+        return rti;
+
+    // Then cross, the conventional "kill second" mark, when using the default
+    // skull kill order.
+    Group* group = bot->GetGroup();
+    if (group && AI_VALUE(std::string, "rti") == "skull")
+    {
+        ObjectGuid const guid = group->GetTargetIcon(RtiTargetValue::GetRtiIndex("cross"));
+        if (guid)
+        {
+            Unit* cross = ai->GetUnit(guid);
+            if (cross && cross->IsAlive() && IsAttacker(attackers, cross) && !ccCheck.IsCc(cross))
+                return cross;
+        }
+    }
+
+    return nullptr;
+}
+
 Unit* DpsTargetValue::Calculate()
 {
-    Unit* rti = RtiTargetValue::Calculate();
-    if (rti) return rti;
-
     const std::list<ObjectGuid> attackers = AI_VALUE(std::list<ObjectGuid>, "possible attack targets");
+
+    if (Unit* marked = GetMarkedTarget(attackers))
+        return marked;
 
     // Focus fire with the group instead of each bot picking its own mob.
     if (Unit* focus = GetGroupFocusTarget(attackers))
@@ -142,6 +172,12 @@ protected:
 Unit* DpsAoeTargetValue::Calculate()
 {
     Unit* rti = RtiTargetValue::Calculate();
+    if (rti && ai->HasActivePlayerMaster())
+    {
+        const std::list<ObjectGuid> attackers = AI_VALUE(std::list<ObjectGuid>, "possible attack targets");
+        if (!IsAttacker(attackers, rti))
+            rti = nullptr;
+    }
     if (rti) return rti;
 
     FindMaxHpTargetStrategy strategy(ai);

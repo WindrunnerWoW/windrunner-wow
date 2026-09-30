@@ -408,6 +408,9 @@ public:
     static bool IsHeal(Player* player, bool inGroup = true);
     static bool IsDps(Player* player, bool inGroup = true);
     static bool IsMainTank(Player* player);
+    // True when the unit is held by crowd control that breaks on damage
+    // (Polymorph, Sap, Freezing Trap, Shackle, Hibernate, ...).
+    static bool HasBreakableCc(Unit* unit);
     static bool IsAssistTank(Player* player);
     static bool IsAssistTankOfIndex(Player* player, uint8 index, bool ignoreDeadPlayers = false);
     bool IsRanged(Player* player, bool inGroup = true);

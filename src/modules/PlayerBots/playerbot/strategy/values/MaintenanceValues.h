@@ -202,7 +202,7 @@ namespace ai
         ShouldEatValue(PlayerbotAI* ai) : BoolCalculatedValue(ai, "should eat", 2) {}
         virtual bool Calculate() override
         {
-            if (AI_VALUE2(uint8, "health", "self target") >= sPlayerbotAIConfig.lowHealth)
+            if (AI_VALUE2(uint8, "health", "self target") >= sPlayerbotAIConfig.mediumHealth)
                 return false;
 
             Player* master = ai->GetMaster();

@@ -1,6 +1,7 @@
 
 #include "playerbot/playerbot.h"
 #include "CombatStrategy.h"
+#include "playerbot/strategy/actions/GenericSpellActions.h"
 #include "playerbot/ServerFacade.h"
 
 using namespace ai;
@@ -141,6 +142,10 @@ bool WaitForAttackStrategy::ShouldWait(PlayerbotAI* ai)
                 }
             }
 
+            // A mob already hitting this bot has to be answered now.
+            if (!enemyPlayer && !AI_VALUE(std::list<ObjectGuid>, "attackers targeting me").empty())
+                return false;
+
             if (!enemyPlayer)
             {
                 // Check if bot is currently in combat
@@ -171,6 +176,11 @@ uint8 WaitForAttackStrategy::GetWaitTime(PlayerbotAI* ai)
 
 float WaitForAttackMultiplier::GetValue(Action* action)
 {
+    // Opening crowd control on the marked add must not wait for the tank:
+    // that is exactly when the sheep / trap / sap is needed.
+    if (dynamic_cast<CastCrowdControlSpellAction*>(action))
+        return 1.0f;
+
     // Allow some movement and targeting actions
     const std::string& actionName = action->getName();
     if ((actionName != "wait for attack keep safe distance") && 

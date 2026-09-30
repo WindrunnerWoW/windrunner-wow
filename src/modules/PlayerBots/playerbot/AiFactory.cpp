@@ -1020,8 +1020,11 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
 
         if (master && !GetBotAI(master))
         {
+            // Companions of a real player are there for the group: no
+            // "gather" (runs off to herb/ore nodes mid-follow) and no "emote"
+            // (random emotes and "suggest what to do" chatter).
             const char* wanderFollow = sPlayerbotAIConfig.useWanderAsDefaultFollowStrategy ? "wander" : "follow";
-            nonCombatEngine->addStrategies("racials", "nc", "food", wanderFollow, "default", "quest", "loot", "gather", "duel", "emote", "buff", "mount", NULL);
+            nonCombatEngine->addStrategies("racials", "nc", "food", wanderFollow, "default", "quest", "loot", "duel", "buff", "mount", NULL);
         }
         else
         {

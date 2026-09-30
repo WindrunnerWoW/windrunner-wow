@@ -24,7 +24,8 @@ namespace ai
                     if(bot->getClass() != CLASS_HUNTER || sServerFacade.GetDistance2d(bot, target) > 5.0f)
                         return false;                   
 
-                const bool canMove = !PossibleAttackTargetsValue::HasBreakableCC(target, bot) && !PossibleAttackTargetsValue::HasUnBreakableCC(target, bot);
+                const bool canMove = !PossibleAttackTargetsValue::HasBreakableCC(target, bot) && !PossibleAttackTargetsValue::HasUnBreakableCC(target, bot) &&
+                    !target->IsStunned() && !sServerFacade.IsInRoots(target);
 
                 // Don't move if the target is targeting you and you can't add distance between you and the target
                 if (target->GetTarget() == bot && canMove && target->GetSpeedInMotion() > (bot->GetSpeedInMotion() * 0.65))
