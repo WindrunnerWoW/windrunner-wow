@@ -12,6 +12,11 @@ namespace ai
 
     public:
         Unit* Calculate() override;
+
+    private:
+        // What the group is actually fighting: the tank's (or else the master's)
+        // target, provided it is already one of our attackers.
+        Unit* GetGroupFocusTarget(const std::list<ObjectGuid>& attackers);
     };
 
     class DpsAoeTargetValue : public RtiTargetValue

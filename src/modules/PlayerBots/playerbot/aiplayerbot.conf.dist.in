@@ -434,6 +434,11 @@ AiPlayerbot.AutoTrainSpells = yes
 # Default: 1 (enabled)
 AiPlayerbot.AutoMaintenanceOnMasterVendor = 1
 
+# Bots controlled by a real player (companions) normally only buff, heal and dispel their own group.
+# Set to 1 to let them also buff/heal random nearby players who are not in the group (walking over to them).
+# Default: 0 (disabled)
+AiPlayerbot.CompanionBuffOutOfGroup = 0
+
 # Bot automatically picks talent points based on current spec (full = pick spec based on probability if multiple are like current spec, semi = only apply points if 1 spec looks like current spec, no = no auto talent points)
 AiPlayerbot.AutoPickTalents = full
 

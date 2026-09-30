@@ -210,7 +210,13 @@ bool BuffTrigger::IsActive()
         return true;
     }
 
-    return !ai->HasAura(spell, target, false, checkIsOwner);
+    if (ai->HasAura(spell, target, false, checkIsOwner))
+    {
+        ai->ClearBuffAttempt(spell, target);
+        return false;
+    }
+
+    return !ai->IsBuffAttemptBlocked(spell, target);
 }
 
 bool MyBuffTrigger::IsActive()
@@ -225,7 +231,16 @@ bool MyBuffTrigger::IsActive()
         return true;
     }
 
-    return target && !ai->HasMyAura(spell, target);
+    if (!target)
+        return false;
+
+    if (ai->HasMyAura(spell, target))
+    {
+        ai->ClearBuffAttempt(spell, target);
+        return false;
+    }
+
+    return !ai->IsBuffAttemptBlocked(spell, target);
 }
 
 Value<Unit*>* BuffOnPartyTrigger::GetTargetValue()
