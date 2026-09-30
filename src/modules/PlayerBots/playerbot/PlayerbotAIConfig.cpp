@@ -914,6 +914,8 @@ bool PlayerbotAIConfig::Initialize()
     sPlayerbotHelpMgr.LoadBotHelpTexts();
 
     LoadTalentSpecs();
+    if (companionRecruiterOnTalentSpecsLoaded)
+        companionRecruiterOnTalentSpecsLoaded();
 
     if (sPlayerbotAIConfig.autoDoQuests)
     {

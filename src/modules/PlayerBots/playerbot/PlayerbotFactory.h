@@ -44,6 +44,13 @@ enum spec : uint8 {
    ROLE_CDPS = 3,
 };*/
 
+struct EquipmentItemLevelTarget
+{
+    uint32 average = 0; // Zero uses the normal level-based equipment selection.
+    uint32 range = 5;
+    uint32 fallbackRange = 15;
+};
+
 class PlayerbotFactory
 {
 public:
@@ -53,10 +60,7 @@ public:
     static void Init();
     void Refresh();
     void Randomize(bool incremental, bool syncWithMaster);
-    // Prepare a bot at its existing level without changing that level or
-    // depending on random-bot configuration switches. When requested, use the
-    // AI master's gear score to cap newly generated equipment.
-    void InitializeAtCurrentLevel(bool syncGearWithMaster = false);
+    void InitializeAtCurrentLevel(EquipmentItemLevelTarget const& gearTarget = {}, uint32 minEnchantItemLevel = 0);
     static std::list<uint32> classQuestIds;
     static std::list<uint32> specialQuestIds;
     void InitSkills();
@@ -78,7 +82,10 @@ private:
     void Prepare();
     void InitSecondEquipmentSet();
     void Shuffle(std::vector<uint32>& items);
-    void InitEquipment(bool incremental, bool syncWithMaster, bool progressive = sPlayerbotAIConfig.randomGearProgression, bool partialUpgrade = false);
+    void InitEquipment(bool incremental, bool syncWithMaster, bool progressive = sPlayerbotAIConfig.randomGearProgression,
+        bool partialUpgrade = false, EquipmentItemLevelTarget const& gearTarget = {});
+    std::vector<uint32> GetEquipmentCandidates(uint32 specId, uint8 slot, uint32 maxItemLevel,
+        EquipmentItemLevelTarget const& gearTarget);
     void InitEquipmentNew(bool incremental);
     bool CanEquipItem(ItemPrototype const* proto, uint32 desiredQuality);
     void InitAllSkills();
@@ -140,6 +147,7 @@ private:
     static TaxiNodeLevelContainer overworldTaxiNodeLevelsH;
     PlayerbotAI* ai;
     Player* bot;
+    uint32 minEnchantItemLevel = 0;
 
 protected:
    EnchantContainer m_EnchantContainer;

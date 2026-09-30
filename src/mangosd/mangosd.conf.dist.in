@@ -51,7 +51,8 @@ Database.AutoUpdate.CharUpdateName = "character"
 Database.AutoUpdate.WorldUpdateName = "world"
 
 # Database.AutoUpdate.AllowedModules. Comma-separated module names to include for
-# module SQL updates, or "all" to scan every enabled module.
+# module SQL updates, or "all" to apply every module folder under data/sql.
+# Core updates run first, then module auth, character, and world in A-Z module order.
 
 Database.AutoUpdate.AllowedModules = "all"
 

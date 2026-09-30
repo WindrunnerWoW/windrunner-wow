@@ -13,6 +13,9 @@ UpdateGearAction::UpdateGearAction(PlayerbotAI* ai): Action(ai, "update gear")
 
 bool UpdateGearAction::Execute(Event& event)
 {
+    if (sRandomPlayerbotMgr.IsExternallyManaged(bot->GetGUIDLow()))
+        return false;
+
     Player* requester = event.getOwner() ? event.getOwner() : GetMaster();
 
     // Get bot class and spec
@@ -125,6 +128,9 @@ bool UpdateGearAction::Execute(Event& event)
 
 bool UpdateGearAction::isUseful()
 {
+    if (sRandomPlayerbotMgr.IsExternallyManaged(bot->GetGUIDLow()))
+        return false;
+
     if (sPlayerbotAIConfig.gearProgressionSystemEnabled)
     {
         // Only for max level random bots that are playing with a real player
