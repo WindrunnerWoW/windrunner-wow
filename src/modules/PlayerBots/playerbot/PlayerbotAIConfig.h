@@ -390,6 +390,7 @@ public:
     bool syncQuestForPlayer;
     std::string autoTrainSpells;
     bool autoMaintenanceOnMasterVendor;
+    bool companionBuffOutOfGroup;
     std::string autoPickTalents;
     bool autoLearnTrainerSpells;
     bool autoLearnQuestSpells;

@@ -78,6 +78,11 @@ Unit* PartyMemberValue::FindPartyMember(FindPlayerPredicate &predicate, bool ign
     
     bool allowBufOutOfGroupPlayers = !ignoreOutOfGroup;
 
+    // Companions exist for their group. Buffing/healing strangers makes them
+    // walk off to random players in towns and keeps them busy "buffing" forever.
+    if (allowBufOutOfGroupPlayers && !sPlayerbotAIConfig.companionBuffOutOfGroup && ai->HasRealPlayerMaster())
+        allowBufOutOfGroupPlayers = false;
+
     if (allowBufOutOfGroupPlayers && !ai->AllowActivity(OUT_OF_PARTY_ACTIVITY))
         allowBufOutOfGroupPlayers = false;
 
@@ -154,8 +159,16 @@ Unit* PartyMemberValue::FindPartyMember(FindPlayerPredicate &predicate, bool ign
 
 bool PartyMemberValue::Check(Unit* player)
 {
-    return player && player != bot && player->GetMapId() == bot->GetMapId() &&
-        bot->IsWithinDistInMap(player, sPlayerbotAIConfig.sightDistance, false);
+    if (!player || player == bot || player->GetMapId() != bot->GetMapId())
+        return false;
+
+    // A GM in invisibility (".gm visible off") is silently dropped from every
+    // spell's target list by the core, so the cast "succeeds" but nothing ever
+    // lands - bots would buff/heal/dispel such a master in an endless loop.
+    if (player->IsPlayer() && static_cast<Player*>(player)->GetVisibility() == VISIBILITY_OFF)
+        return false;
+
+    return bot->IsWithinDistInMap(player, sPlayerbotAIConfig.sightDistance, false);
 }
 
 bool PartyMemberValue::IsTargetOfSpellCast(Player* target, SpellEntryPredicate &predicate)

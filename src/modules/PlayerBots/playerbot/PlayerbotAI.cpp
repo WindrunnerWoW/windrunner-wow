@@ -1414,6 +1414,89 @@ void PlayerbotAI::MarkForceRebuffBuffCompleted(const std::string& spell, Unit* t
         forceRebuffCompletedBuffs.insert(ForceRebuffBuffKey(spell, target));
 }
 
+namespace
+{
+    // Seconds after a cast during which the aura may still be in flight.
+    const time_t BUFF_IN_FLIGHT_SECONDS = 3;
+    // Casts without the aura ever showing up, inside the window, before the
+    // (spell, target) pair is given up on.
+    const uint8 BUFF_MAX_FAILED_ATTEMPTS = 3;
+    const time_t BUFF_ATTEMPT_WINDOW_SECONDS = 60;
+    const time_t BUFF_GIVE_UP_SECONDS = 180;
+}
+
+void PlayerbotAI::NoteBuffAttempt(const std::string& spell, Unit* target)
+{
+    if (!target)
+        return;
+
+    time_t now = time(0);
+
+    // Keep the map small: drop stale entries (targets that left, etc.).
+    for (auto it = buffAttempts.begin(); it != buffAttempts.end();)
+    {
+        if (now - it->second.lastAttempt > BUFF_GIVE_UP_SECONDS)
+            it = buffAttempts.erase(it);
+        else
+            ++it;
+    }
+
+    BuffAttempt& attempt = buffAttempts[ForceRebuffBuffKey(spell, target)];
+    if (!attempt.firstAttempt || now - attempt.firstAttempt > BUFF_ATTEMPT_WINDOW_SECONDS)
+    {
+        attempt.firstAttempt = now;
+        attempt.attempts = 0;
+    }
+
+    attempt.lastAttempt = now;
+    if (attempt.attempts < 255)
+        attempt.attempts++;
+}
+
+void PlayerbotAI::ClearBuffAttempt(const std::string& spell, Unit* target)
+{
+    if (!target || buffAttempts.empty())
+        return;
+
+    buffAttempts.erase(ForceRebuffBuffKey(spell, target));
+}
+
+void PlayerbotAI::SuppressBuffAttempt(const std::string& spell, Unit* target)
+{
+    if (!target)
+        return;
+
+    time_t now = time(0);
+    BuffAttempt& attempt = buffAttempts[ForceRebuffBuffKey(spell, target)];
+    attempt.firstAttempt = now;
+    attempt.lastAttempt = now;
+    attempt.attempts = BUFF_MAX_FAILED_ATTEMPTS;
+}
+
+bool PlayerbotAI::IsBuffAttemptBlocked(const std::string& spell, Unit* target)
+{
+    if (!target || buffAttempts.empty())
+        return false;
+
+    auto it = buffAttempts.find(ForceRebuffBuffKey(spell, target));
+    if (it == buffAttempts.end())
+        return false;
+
+    time_t now = time(0);
+    const BuffAttempt& attempt = it->second;
+
+    if (attempt.attempts >= BUFF_MAX_FAILED_ATTEMPTS)
+    {
+        if (now - attempt.lastAttempt < BUFF_GIVE_UP_SECONDS)
+            return true;
+
+        buffAttempts.erase(it);
+        return false;
+    }
+
+    return now - attempt.lastAttempt < BUFF_IN_FLIGHT_SECONDS;
+}
+
 void PlayerbotAI::OnCombatStarted()
 {
     if(!IsStateActive(BotState::BOT_STATE_COMBAT))
@@ -4607,7 +4690,7 @@ Aura* PlayerbotAI::GetAura(uint32 spellId, Unit* unit, bool checkIsOwner)
             {
                 if (checkIsOwner)
                 {
-                    if (aura->GetHolder() && aura->GetHolder()->GetCasterGuid() == bot->GetObjectGuid())
+                    if (auraTmp->GetHolder() && auraTmp->GetHolder()->GetCasterGuid() == bot->GetObjectGuid())
                     {
                         aura = auraTmp;
                         break;

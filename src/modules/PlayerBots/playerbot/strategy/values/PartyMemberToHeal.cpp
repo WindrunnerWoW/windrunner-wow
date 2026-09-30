@@ -46,7 +46,10 @@ static float HealTriageScore(PlayerbotAI* ai, const Unit* unit, bool incomingDam
     if (!hpMax)
         return 0.0f;
 
-    float missing = float(hpMax - hp);
+    // Triage by *percentage* missing. Absolute missing HP made a tank at 60%
+    // outrank a cloth DPS at 15% simply because the tank has a bigger pool, and
+    // the DPS died while the healer topped the tank.
+    float missing = float(hpMax - hp) * 100.0f / float(hpMax);
 
     // Prefer tanks when injured: they take the most damage and drop the party if they die.
     if (unit->IsPlayer() && ai->IsTank((Player*)unit))
@@ -71,7 +74,8 @@ Unit* PartyMemberToHeal::Calculate()
         }
     }
 
-    if (GuidPosition rpgTarget = AI_VALUE(GuidPosition, "rpg target"))
+    GuidPosition rpgTarget = (!ai->HasRealPlayerMaster() || sPlayerbotAIConfig.companionBuffOutOfGroup) ? AI_VALUE(GuidPosition, "rpg target") : GuidPosition();
+    if (rpgTarget)
     {
         Unit* target = rpgTarget.GetCreature(bot->GetInstanceId());
         if (target && sServerFacade.IsFriendlyTo(bot, target) && target->GetHealthPercent() < 100)
@@ -212,7 +216,12 @@ bool PartyMemberToHeal::Check(Unit* player)
 
     if (!player->IsInWorld())
         return false;
-                                                     
+
+    // GM invisibility drops the target from the spell's target list: the heal
+    // is cast, lands nowhere, and the healer loops on it.
+    if (player->IsPlayer() && static_cast<Player*>(player)->GetVisibility() == VISIBILITY_OFF)
+        return false;
+
     if (sServerFacade.GetDistance2d(bot, player) > maxDist)
         return false;
 

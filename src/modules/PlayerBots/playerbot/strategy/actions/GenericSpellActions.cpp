@@ -295,7 +295,13 @@ bool CastBuffSpellAction::isUseful()
     if (ai->IsForceRebuffPending() && !ai->IsForceRebuffExpired() && !bot->IsInCombat())
         return !ai->IsForceRebuffBuffCompleted(GetSpellName(), target);
 
-    return !ai->HasAura(GetSpellName(), target, false, isOwner);
+    if (ai->HasAura(GetSpellName(), target, false, isOwner))
+    {
+        ai->ClearBuffAttempt(GetSpellName(), target);
+        return false;
+    }
+
+    return !ai->IsBuffAttemptBlocked(GetSpellName(), target);
 }
 
 bool CastBuffSpellAction::Execute(Event& event)
@@ -304,6 +310,7 @@ bool CastBuffSpellAction::Execute(Event& event)
     bool executed = CastSpellAction::Execute(event);
     if (executed)
     {
+        ai->NoteBuffAttempt(GetSpellName(), target);
         ai->NoteForceRebuffBuffWork();
         ai->MarkForceRebuffBuffCompleted(GetSpellName(), target);
     }
