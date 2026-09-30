@@ -91,9 +91,15 @@ float DungeonClearMultiplier::GetValue(Action* action)
     // engage-trash/engage-boss actions, so the stock pickers must stay suppressed
     // whenever DC owns the bot — active OR paused. Reactive defense (a mob that
     // actually aggros the bot) is combat-engine and untouched here.
+    // "pull nearest target" is the stock dungeon auto-pull (PullStrategy's
+    // "should pull" trigger). It only waits for healer mana >= mediumMana, so
+    // left alone it pulled ahead of DC's own rest/spread/loot/rez gates - and
+    // off a PAUSED tank. It requests the pull and flips the bot into the combat
+    // engine itself, so suppressing only pull start/action (above) is too late.
     bool const isProactiveEngage =
         name == "attack anything" ||
         name == "move random" ||
+        name == "pull nearest target" ||
         name == "pull action" || name == "pull start" || name == "reach pull";
 
     // FOLLOWER in advanced-pull camp-hold. Followers never set `enabled`, so this
