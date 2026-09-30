@@ -355,6 +355,23 @@ namespace ai
         virtual std::string GetTargetQualifier() override { return GetSpellName(); }
     };
 
+    // Stop a channel (Blizzard, Rain of Fire, Hurricane, Volley, ...). The
+    // generic "interrupt current spell" deliberately leaves channels alone.
+    class CancelChannelAction : public Action
+    {
+    public:
+        CancelChannelAction(PlayerbotAI* ai) : Action(ai, "cancel channel") {}
+        bool isUsefulWhenStunned() override { return true; }
+        bool Execute(Event& event) override
+        {
+            if (!bot->GetCurrentSpell(CURRENT_CHANNELED_SPELL))
+                return false;
+
+            bot->InterruptSpell(CURRENT_CHANNELED_SPELL);
+            return true;
+        }
+    };
+
     class CastShootAction : public CastSpellAction
     {
     public:

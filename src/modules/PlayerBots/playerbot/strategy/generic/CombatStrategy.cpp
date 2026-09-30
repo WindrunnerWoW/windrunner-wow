@@ -90,6 +90,10 @@ void AvoidAoeStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
     triggers.push_back(new TriggerNode(
         "has area debuff",
         NextAction::array(0, new NextAction("flee", ACTION_EMERGENCY + 5), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "wasted aoe channel",
+        NextAction::array(0, new NextAction("cancel channel", ACTION_EMERGENCY + 4), NULL)));
 }
 
 void AvoidAoeStrategy::InitReactionTriggers(std::list<TriggerNode*>& triggers)
