@@ -373,8 +373,9 @@ void PlayerbotFactory::Randomize(bool incremental, bool syncWithMaster)
     pmo.reset();
 }
 
-void PlayerbotFactory::InitializeAtCurrentLevel(bool syncGearWithMaster)
+void PlayerbotFactory::InitializeAtCurrentLevel(EquipmentItemLevelTarget const& gearTarget, uint32 minEnchantItemLevel)
 {
+    this->minEnchantItemLevel = minEnchantItemLevel;
     InitBags();
     InitAvailableSpells();
     InitAllSkills();
@@ -388,7 +389,7 @@ void PlayerbotFactory::InitializeAtCurrentLevel(bool syncGearWithMaster)
     if (bot->GetLevel() >= sPlayerbotAIConfig.minEnchantingBotLevel)
         LoadEnchantContainer();
 
-    InitEquipment(false, syncGearWithMaster);
+    InitEquipment(false, false, sPlayerbotAIConfig.randomGearProgression, false, gearTarget);
     InitGems();
     InitAmmo();
     InitFood();
@@ -3008,7 +3009,63 @@ void PlayerbotFactory::Shuffle(std::vector<uint32>& items)
     }
 }
 
-void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool progressive, bool partialUpgrade)
+std::vector<uint32> PlayerbotFactory::GetEquipmentCandidates(uint32 specId, uint8 slot, uint32 maxItemLevel,
+    EquipmentItemLevelTarget const& gearTarget)
+{
+    // The cache is indexed by character level, so lower levels are searched as well.
+    std::set<uint32> uniqueItems;
+    auto collect = [&](uint8 querySlot, uint32 quality)
+    {
+        for (uint32 searchLevel = bot->GetLevel(); searchLevel > 0; --searchLevel)
+        {
+            for (uint32 itemId : sRandomItemMgr.Query(searchLevel, bot->getClass(), uint8(specId), querySlot, quality))
+            {
+                ItemPrototype const* proto = sObjectMgr.GetItemPrototype(itemId);
+                if (proto && proto->ItemLevel && proto->ItemLevel <= maxItemLevel)
+                    uniqueItems.insert(itemId);
+            }
+        }
+    };
+
+    for (uint32 quality = ITEM_QUALITY_POOR; quality < ITEM_QUALITY_ARTIFACT; ++quality)
+    {
+        if (itemQuality && quality != itemQuality)
+            continue;
+        collect(slot, quality);
+        // One-handed weapons are also indexed under the off-hand slot.
+        if (slot == EQUIPMENT_SLOT_MAINHAND)
+            collect(EQUIPMENT_SLOT_OFFHAND, quality);
+    }
+
+    uint32 const fallbackRange = std::max(gearTarget.range, gearTarget.fallbackRange);
+    auto distance = [&](uint32 itemLevel)
+    {
+        return itemLevel > gearTarget.average ? itemLevel - gearTarget.average : gearTarget.average - itemLevel;
+    };
+    auto band = [&](uint32 delta)
+    {
+        return delta <= gearTarget.range ? 0 : (delta <= fallbackRange ? 1 : 2);
+    };
+    std::vector<uint32> ids(uniqueItems.begin(), uniqueItems.end());
+    std::sort(ids.begin(), ids.end(), [&](uint32 left, uint32 right)
+    {
+        uint32 const leftDistance = distance(sObjectMgr.GetItemPrototype(left)->ItemLevel);
+        uint32 const rightDistance = distance(sObjectMgr.GetItemPrototype(right)->ItemLevel);
+        if (band(leftDistance) != band(rightDistance))
+            return band(leftDistance) < band(rightDistance);
+        if (leftDistance != rightDistance)
+            return leftDistance < rightDistance;
+        uint64 const leftWeight = uint64(sRandomItemMgr.GetStatWeight(left, specId)) +
+            sRandomItemMgr.GetBestRandomEnchantStatWeight(left, specId);
+        uint64 const rightWeight = uint64(sRandomItemMgr.GetStatWeight(right, specId)) +
+            sRandomItemMgr.GetBestRandomEnchantStatWeight(right, specId);
+        return leftWeight != rightWeight ? leftWeight > rightWeight : left < right;
+    });
+    return ids;
+}
+
+void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool progressive, bool partialUpgrade,
+    EquipmentItemLevelTarget const& gearTarget)
 {
     // Bots below level 5 stay in their starting outfit: gear DB has little for them,
     // and specId is often 0 at low levels which would strip them naked (DestroyItemsVisitor
@@ -3165,7 +3222,14 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
         uint32 quality = ITEM_QUALITY_POOR;
         uint32 maxItemLevel = sPlayerbotAIConfig.randomGearMaxLevel;
         bool progressiveGear = progressive;
-        if(syncWithMaster && ai->GetMaster())
+        bool const targetedGear = gearTarget.average && slot != EQUIPMENT_SLOT_BODY && slot != EQUIPMENT_SLOT_TABARD;
+        if (targetedGear)
+        {
+            maxItemLevel = uint32(std::min<uint64>(maxItemLevel,
+                uint64(gearTarget.average) + std::max(gearTarget.range, gearTarget.fallbackRange)));
+            progressiveGear = false;
+        }
+        else if(syncWithMaster && ai->GetMaster())
         {
             maxItemLevel = masterGS + sPlayerbotAIConfig.randomGearMaxDiff;
             progressiveGear = false;
@@ -3318,7 +3382,9 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
             else
             {
                 std::vector<uint32> ids;
-                for (uint32 q = quality; q < ITEM_QUALITY_ARTIFACT; ++q)
+                if (targetedGear)
+                    ids = GetEquipmentCandidates(specId, slot, maxItemLevel, gearTarget);
+                else for (uint32 q = quality; q < ITEM_QUALITY_ARTIFACT; ++q)
                 {
                     // quality selected from command
                     if (setQuality && q != quality)
@@ -3383,7 +3449,7 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
 
                 sLog.outDetail("Bot #%d %s:%d <%s>: %u possible items for slot %d", bot->GetGUIDLow(), bot->GetTeam() == ALLIANCE ? "A" : "H", bot->GetLevel(), bot->GetName(), uint32(ids.size()), slot);
 
-                if (incremental || !progressiveGear)
+                if (!targetedGear && (incremental || !progressiveGear))
                 {
                     // sort items based on stat value, ilvl or quality
                     std::sort(ids.begin(), ids.end(), [specId](int a, int b)
@@ -3405,7 +3471,7 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
                     if (!progressiveGear)
                         std::reverse(ids.begin(), ids.end());
                 }
-                else if (!ids.empty())
+                else if (!targetedGear && !ids.empty())
                 {
                     Shuffle(ids);
                 }
@@ -3443,7 +3509,7 @@ void PlayerbotFactory::InitEquipment(bool incremental, bool syncWithMaster, bool
 
                     // do not use items that required level is too low compared to bot's level
                     uint32 reqLevel = sRandomItemMgr.GetMinLevelFromCache(newItemId);
-                    if (reqLevel && proto->Quality < ITEM_QUALITY_LEGENDARY && abs((int)bot->GetLevel() - (int)reqLevel) > (int)sPlayerbotAIConfig.randomGearMaxDiff)
+                    if (!targetedGear && reqLevel && proto->Quality < ITEM_QUALITY_LEGENDARY && abs((int)bot->GetLevel() - (int)reqLevel) > (int)sPlayerbotAIConfig.randomGearMaxDiff)
                         continue;
 
                     // filter tank weapons
@@ -3825,6 +3891,13 @@ void PlayerbotFactory::EnchantItem(Item* item)
 {
     if (!item)
         return;
+
+    if (minEnchantItemLevel)
+    {
+        ItemPrototype const* proto = item->GetProto();
+        if (!proto || proto->ItemLevel <= minEnchantItemLevel)
+            return;
+    }
 
     if (bot->GetLevel() < sPlayerbotAIConfig.minEnchantingBotLevel)
         return;

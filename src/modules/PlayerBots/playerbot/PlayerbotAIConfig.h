@@ -121,6 +121,8 @@ public:
     // Supplied by the recruiter. Returns true only while the bot has an active
     // contract or an explicit owned-companion invitation.
     std::function<bool(uint32)> companionRecruiterAllowsLogin;
+    // Recruiter restores its talent paths after the configured specs are reloaded.
+    std::function<void()> companionRecruiterOnTalentSpecsLoaded;
     // mod-playerbots caps how many bots one account may .add; the dungeon-clear
     // test runner reads it to size its parties. Zero keeps that gate open, the
     // same default mod-playerbots ships.

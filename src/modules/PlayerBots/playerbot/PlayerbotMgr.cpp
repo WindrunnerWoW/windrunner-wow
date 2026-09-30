@@ -76,6 +76,9 @@ void PlayerbotHolder::AddPlayerBot(uint32 guidLow, uint32 masterAccountId)
     if (!sPlayerbotAIConfig.enabled)
         return;
 
+    if (HasPendingBotLogin(guidLow))
+        return;
+
     // In companion mode only the recruiter may request a bot login. Check here
     // and again in the async callback so a marker removed while the query is in
     // flight cannot authorize a stale login.
@@ -2931,6 +2934,15 @@ void PlayerbotHolder::CancelPendingBotLogin(uint32 guid)
             pending.second.cancelled = true;
 }
 
+bool PlayerbotHolder::HasPendingBotLogin(uint32 guid) const
+{
+    for (auto const& pending : m_pendingBotLogins)
+        if (pending.second.botGuid.GetCounter() == guid && !pending.second.cancelled)
+            return true;
+
+    return false;
+}
+
 bool PlayerbotHolder::DeleteBot(ObjectGuid guid, bool allowInstant)
 {
     CancelPendingBotLogin(guid.GetCounter());
@@ -2964,6 +2976,9 @@ std::string PlayerbotHolder::HandleBotDelete(Player* bot, Player* master, const 
     {
         guid = bot->GetObjectGuid();
     }
+
+    if (HasCompanionRecruiterMarker(guid.GetCounter()))
+        return "Remove recruiter companions through the companion recruiter.";
 
     uint32 masterAccountId = master ? master->GetSession()->GetAccountId() : 0;
     PlayerbotMgr* mgr = master ? GetBotMgr(master) : nullptr;

@@ -24,7 +24,9 @@ public:
     virtual ~PlayerbotHolder();
 
     void AddPlayerBot(uint32 guid, uint32 masterAccountId);
-	void HandlePlayerBotLoginCallback(QueryResult * dummy, SqlQueryHolder * holder);
+    bool HasPendingBotLogin(uint32 guid) const;
+    void CancelPendingBotLogin(uint32 guid);
+    void HandlePlayerBotLoginCallback(QueryResult * dummy, SqlQueryHolder * holder);
 
     void LogoutPlayerBot(uint32 guid, bool allowInstant = true, bool forDelete = false);
     void DisablePlayerBot(uint32 guid, bool logOutPlayer = true);
@@ -64,7 +66,6 @@ protected:
     virtual uint32 GetOrCreateAccount(Player* master, std::string& error);
     void Cleanup();   
 private:
-    void CancelPendingBotLogin(uint32 guid);
     typedef std::list<std::string> (PlayerbotHolder::*HolderCommandHandler)(Player* master, const std::string param, AccountTypes security);
     typedef std::string (PlayerbotHolder::*BotCommandHandler)(Player* bot, Player* master, const std::string param);
 

@@ -6,8 +6,8 @@
 ConfVersion=2026092200
 
 # Disable the original AuctionHouseBot. AhBot replaces it completely.
-AuctionHouseBot.Seller.Enabled = 0
-AuctionHouseBot.Buyer.Enabled = 0
+AuctionHouseBot.Seller.Enabled = 1
+AuctionHouseBot.Buyer.Enabled = 1
 
 ###################################################################################################################
 # REQUIRED SETUP
@@ -18,7 +18,7 @@ AuctionHouseBot.Buyer.Enabled = 0
 # ahbot_price, and the sample listing counts from that import on every cycle.
 ###################################################################################################################
 
-AhBot.Enabled = 0
+AhBot.Enabled = 1
 
 ###################################################################################################################
 # MARKET SIZE

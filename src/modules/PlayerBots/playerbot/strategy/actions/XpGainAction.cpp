@@ -88,7 +88,8 @@ bool XpGainAction::Execute(Event& event)
 
 void XpGainAction::GiveXP(int32 xp, Unit* victim)
 {
-    if (!bot->IsAlive())
+    // This path does not call Player::GiveXP, so the XP lock is checked here.
+    if (!bot->IsAlive() || !bot->HasXPGainEnabled())
     {
         return;
     }

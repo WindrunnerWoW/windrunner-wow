@@ -3280,6 +3280,10 @@ void RandomPlayerbotMgr::Randomize(Player* bot)
 
 void RandomPlayerbotMgr::UpdateGearSpells(Player* bot)
 {
+    // Externally managed bots are equipped by the recruiter.
+    if (!bot || IsExternallyManaged(bot->GetGUIDLow()))
+        return;
+
     auto pmo = sPerformanceMonitor.start(PERF_MON_RNDBOT, "UpgradeGear");
 
     uint32 maxLevel = sPlayerbotAIConfig.randomBotMaxLevel;
