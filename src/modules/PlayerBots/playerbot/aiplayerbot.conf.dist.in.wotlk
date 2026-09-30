@@ -919,6 +919,9 @@ AiPlayerbot.FleeingEnabled = 1
 #AiPlayerbot.LowMana = 15
 #AiPlayerbot.MediumMana = 40
 
+# Default strategies added on top of the talent-based ones. Role strategies (dps/heal/tank and
+# dps assist/tank assist/dps aoe) are ignored here - the bot's talents decide its role. Player-controlled
+# companions (WindrunnerCompanionMode) never get grind/tfish/rpg/travel here: they stay with the group.
 # Random bot default strategies (applied after defaults)
 #AiPlayerbot.RandomBotCombatStrategies = +dps,+dps assist,-threat
 #AiPlayerbot.RandomBotNonCombatStrategies = +grind,+loot,+rpg,+custom::say

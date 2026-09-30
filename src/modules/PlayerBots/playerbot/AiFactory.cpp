@@ -17,6 +17,7 @@
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/RandomPlayerbotMgr.h"
 #include "Battlegrounds/BattleGroundMgr.h"
+#include <sstream>
 
 namespace
 {
@@ -34,6 +35,59 @@ bool AllowHealerOffdps(Player* player)
         return false;
 #endif
     return true;
+}
+
+// The configured default strategy lists must not pick the role: talents do,
+// above. Two sibling groups made the shipped "+dps,+dps assist,..." default
+// quietly rewrite roles:
+//  - "dps"/"heal"/"tank" are class spec aliases (a priest's "dps" IS the
+//    shadow placeholder) and spec strategies are siblings, so every
+//    Holy/Discipline priest was turned into Shadow and the party lost its
+//    healer;
+//  - "dps assist"/"tank assist"/"dps aoe" are siblings too, so every tank bot
+//    lost "tank assist" and picked targets like a DPS (no loose-mob pickup).
+// Chat commands ("co +dps") still switch deliberately; only defaults are
+// filtered.
+std::string WithoutSpecAliases(const std::string& strategies)
+{
+    std::string result;
+    std::stringstream ss(strategies);
+    std::string token;
+    while (std::getline(ss, token, ','))
+    {
+        std::string name = token;
+        while (!name.empty() && (name[0] == '+' || name[0] == '-' || name[0] == '~' || name[0] == ' '))
+            name.erase(0, 1);
+        while (!name.empty() && name.back() == ' ')
+            name.pop_back();
+
+        if (name == "dps" || name == "heal" || name == "tank" ||
+            name == "dps assist" || name == "tank assist" || name == "dps aoe")
+            continue;
+
+        if (!result.empty())
+            result += ",";
+        result += token;
+    }
+
+    return result;
+}
+
+// A player's companions stay with the group: whatever the configured default
+// lists say, no grinding, fishing trips, crafting RPG or free wandering.
+void StripCompanionRoaming(Player* player, PlayerbotAI* const facade, Engine* nonCombatEngine)
+{
+    if (!sPlayerbotAIConfig.windrunnerCompanionMode || !facade || !facade->HasRealPlayerMaster() || player->InBattleGround())
+        return;
+
+    for (const char* name : { "grind", "tfish", "rpg", "rpg craft", "travel", "gather", "emote" })
+        nonCombatEngine->removeStrategy(name);
+
+    if (!sPlayerbotAIConfig.useWanderAsDefaultFollowStrategy && nonCombatEngine->HasStrategy("wander"))
+    {
+        nonCombatEngine->removeStrategy("wander");
+        nonCombatEngine->addStrategy("follow");
+    }
 }
 }
 
@@ -646,11 +700,11 @@ void AiFactory::AddDefaultCombatStrategies(Player* player, PlayerbotAI* const fa
         // remove threat for now
         //engine->removeStrategy("threat");
 
-        combatEngine->ChangeStrategy(sPlayerbotAIConfig.randomBotCombatStrategies);
+        combatEngine->ChangeStrategy(WithoutSpecAliases(sPlayerbotAIConfig.randomBotCombatStrategies));
     }
     else
     {
-        combatEngine->ChangeStrategy(sPlayerbotAIConfig.combatStrategies);
+        combatEngine->ChangeStrategy(WithoutSpecAliases(sPlayerbotAIConfig.combatStrategies));
     }
 
     // High-impact combat defaults. Applied after ChangeStrategy so historical
@@ -1097,7 +1151,7 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
                 nonCombatEngine->addStrategy("maintenance");
             }
 
-            nonCombatEngine->ChangeStrategy(sPlayerbotAIConfig.randomBotNonCombatStrategies);
+            nonCombatEngine->ChangeStrategy(WithoutSpecAliases(sPlayerbotAIConfig.randomBotNonCombatStrategies));
         }
         else 
         {
@@ -1124,11 +1178,11 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
                             nonCombatEngine->addStrategy("maintenance");
                         }
 
-                        nonCombatEngine->ChangeStrategy(sPlayerbotAIConfig.randomBotNonCombatStrategies);
+                        nonCombatEngine->ChangeStrategy(WithoutSpecAliases(sPlayerbotAIConfig.randomBotNonCombatStrategies));
                     }
                     else
                     {
-                        nonCombatEngine->ChangeStrategy(sPlayerbotAIConfig.nonCombatStrategies);
+                        nonCombatEngine->ChangeStrategy(WithoutSpecAliases(sPlayerbotAIConfig.nonCombatStrategies));
                     }
                 }
             }
@@ -1136,8 +1190,10 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
     }
     else
     {
-        nonCombatEngine->ChangeStrategy(sPlayerbotAIConfig.nonCombatStrategies);
+        nonCombatEngine->ChangeStrategy(WithoutSpecAliases(sPlayerbotAIConfig.nonCombatStrategies));
     }
+
+    StripCompanionRoaming(player, facade, nonCombatEngine);
 
     // Battleground switch
     if (player->InBattleGround())

@@ -56,7 +56,10 @@ namespace ai
                     // they cast. The 0.75 factor keeps a buffer for target movement
                     // while still being well within casting distance.
                     const float preferredDist = range * 0.75f;
-                    chaseDist = inLos ? preferredDist : (isFriend ? std::min(distanceToTarget * 0.9f, preferredDist) : preferredDist);
+                    // Out of line of sight: step closer whatever the target is. An
+                    // enemy used to keep the full preferred distance, so a caster
+                    // already that close but behind a pillar never moved at all.
+                    chaseDist = inLos ? preferredDist : std::min(distanceToTarget * 0.9f, preferredDist);
                     chaseDist = std::max(chaseDist - sPlayerbotAIConfig.contactDistance, 0.0f);
                 }
 

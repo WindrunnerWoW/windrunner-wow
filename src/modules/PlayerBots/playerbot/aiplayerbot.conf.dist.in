@@ -1068,13 +1068,16 @@ AiPlayerbot.SaveManaThreshold = 60
 # Defer ready-check replies until the bot has refreshed its persistent buffs.
 AiPlayerbot.ForceRebuffOnReadyCheck = 0
 
+# Default strategies added on top of the talent-based ones. Role strategies (dps/heal/tank and
+# dps assist/tank assist/dps aoe) are ignored here - the bot's talents decide its role. Player-controlled
+# companions (WindrunnerCompanionMode) never get grind/tfish/rpg/travel here: they stay with the group.
 # Random bot default strategies (applied after defaults)
-AiPlayerbot.RandomBotCombatStrategies = +dps,+dps assist,+threat,+dungeon
+AiPlayerbot.RandomBotCombatStrategies = +threat,+dungeon
 AiPlayerbot.RandomBotNonCombatStrategies = +grind,+loot,+custom::say,+tfish,+wander,+rpg craft,+dungeon
 #AiPlayerbot.RandomBotReactStrategies =
 #AiPlayerbot.RandomBotDeadStrategies =
-AiPlayerbot.CombatStrategies = +custom::say,+dps,+dps assist,+threat,+dungeon
-AiPlayerbot.NonCombatStrategies = +grind,+loot,+custom::say,+return,+delayed roll,+tfish,+wander,+rpg craft,+quest,+dungeon
+AiPlayerbot.CombatStrategies = +custom::say,+threat,+dungeon
+AiPlayerbot.NonCombatStrategies = +loot,+custom::say,+return,+delayed roll,+quest,+dungeon
 #AiPlayerbot.ReactStrategies = 
 #AiPlayerbot.DeadStrategies = 
 
