@@ -2,6 +2,7 @@
 #include "AutoReviveAction.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/ServerFacade.h"
+#include "Objects/Corpse.h"
 
 using namespace ai;
 
@@ -32,7 +33,8 @@ bool AutoReviveAction::CanResurrectOthers(Player* player)
 
 bool AutoReviveAction::WillAutoRevive(Player* dead)
 {
-    if (!sPlayerbotAIConfig.autoReviveWithoutRezzer || !dead)
+    if (!sPlayerbotAIConfig.autoReviveWithoutRezzer || !dead || dead->IsAlive() ||
+        !dead->IsInWorld() || dead->IsBeingTeleported())
         return false;
 
     PlayerbotAI* deadAi = GetBotAI(dead);
@@ -40,8 +42,16 @@ bool AutoReviveAction::WillAutoRevive(Player* dead)
         return false;
 
     Player* master = deadAi->GetMaster();
-    if (!master || !master->IsInWorld() || !master->IsAlive() || master->GetMapId() != dead->GetMapId())
+    if (!master || !master->IsInWorld() || !master->IsAlive() || master->IsBeingTeleported())
         return false;
+
+    if (master->GetMapId() != dead->GetMapId() || master->GetInstanceId() != dead->GetInstanceId())
+    {
+        Corpse* corpse = dead->GetCorpse();
+        if (!dead->HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_GHOST) || !corpse ||
+            corpse->GetMapId() != master->GetMapId() || corpse->GetInstanceId() != master->GetInstanceId())
+            return false;
+    }
 
     Group* group = dead->GetGroup();
     if (!group || !dead->IsInGroup(master))
@@ -50,7 +60,8 @@ bool AutoReviveAction::WillAutoRevive(Player* dead)
     for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
     {
         Player* member = ref->getSource();
-        if (!member || member == dead || !member->IsInWorld() || member->GetMapId() != dead->GetMapId())
+        if (!member || member == dead || !member->IsInWorld() ||
+            member->GetMapId() != master->GetMapId() || member->GetInstanceId() != master->GetInstanceId())
             continue;
 
         if (member->IsAlive() && CanResurrectOthers(member))
@@ -80,8 +91,7 @@ bool AutoReviveAction::isUseful()
     for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
     {
         Player* member = ref->getSource();
-        if (member && member->IsInWorld() && member->IsAlive() && member->GetMapId() == bot->GetMapId() &&
-            member->IsInCombat())
+        if (member && member->IsInCombat())
         {
             quietSince = 0;
             return false;
@@ -92,21 +102,36 @@ bool AutoReviveAction::isUseful()
     if (!quietSince)
         quietSince = now;
 
-    return now - quietSince >= time_t(sPlayerbotAIConfig.autoReviveDelay);
+    uint32 const delay = sPlayerbotAIConfig.windrunnerCompanionMode ?
+        std::max<uint32>(30u, sPlayerbotAIConfig.autoReviveDelay) : sPlayerbotAIConfig.autoReviveDelay;
+    return now - quietSince >= time_t(delay);
 }
 
 bool AutoReviveAction::Execute(Event& event)
 {
+    // Recheck at execution: another group member may have entered combat
+    // after this action was queued.
+    if (!isUseful())
+        return false;
+
     Player* master = GetMaster();
     bool const wasGhost = bot->HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_GHOST);
 
     bot->ResurrectPlayer(0.5f);
+    if (!bot->IsAlive())
+        return false;
     bot->SpawnCorpseBones();
+    ai->OnResurrected();
 
     // A released ghost stands at the graveyard or halfway back: rejoin the
     // master instead of reviving out there.
-    if (wasGhost && master && master->GetMapId() == bot->GetMapId())
-        bot->NearTeleportTo(master->GetPositionX(), master->GetPositionY(), master->GetPositionZ(), master->GetOrientation(), false);
+    if (wasGhost && master)
+    {
+        uint32 const options = master->GetMapId() == bot->GetMapId() &&
+            master->GetInstanceId() != bot->GetInstanceId() ? TELE_TO_FORCE_MAP_CHANGE : 0;
+        bot->TeleportTo(master->GetMapId(), master->GetPositionX(), master->GetPositionY(),
+            master->GetPositionZ(), master->GetOrientation(), options);
+    }
 
     quietSince = 0;
 

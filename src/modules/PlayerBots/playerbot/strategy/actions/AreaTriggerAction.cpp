@@ -21,7 +21,14 @@ bool ReachAreaTriggerAction::Execute(Event& event)
     if(!atEntry)
         return false;
 
-    AreaTrigger const* at = sObjectMgr.GetAreaTrigger(triggerId);
+    // Only teleport triggers are worth walking to. The compat shim maps
+    // cmangos' sObjectMgr.GetAreaTrigger() onto the plain trigger geometry,
+    // which exists for EVERY trigger, so it cannot tell a portal from a
+    // scripted/exploration trigger; the teleport table can. Without this the
+    // bots dropped follow, froze their AI for the walk to whatever trigger
+    // the master crossed (dungeons are full of them), or answered "too far
+    // away" when the trigger's centre was beyond sight distance.
+    AreaTriggerTeleport const* at = sObjectMgr.GetAreaTriggerTeleport(triggerId);
     if (!at)
     {
         WorldPacket p1(CMSG_AREATRIGGER);
@@ -31,6 +38,13 @@ bool ReachAreaTriggerAction::Execute(Event& event)
 
         return true;
     }
+
+    // The master's packet is relayed after the master has already been
+    // ported, so by the time a bot handles it the bot may be on the other
+    // side as well (summoned, or teleported along by a module such as the
+    // companion recruiter). Nothing left to follow then.
+    if (bot->GetMapId() != atEntry->mapid && bot->GetMapId() == at->destination.mapId)
+        return false;
 
     if (bot->GetMapId() != atEntry->mapid || bot->GetDistance(atEntry->x, atEntry->y, atEntry->z) > sPlayerbotAIConfig.sightDistance)
     {
@@ -70,7 +84,7 @@ bool AreaTriggerAction::Execute(Event& event)
     if(!atEntry)
         return false;
 
-    AreaTrigger const* at = sObjectMgr.GetAreaTrigger(triggerId);
+    AreaTriggerTeleport const* at = sObjectMgr.GetAreaTriggerTeleport(triggerId);
     if (!at)
         return true;
 

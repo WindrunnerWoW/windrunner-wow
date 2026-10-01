@@ -19,6 +19,7 @@
 
 #include "Playerbots.h"
 #include "PlayerbotAI.h"
+#include "PlayerbotAIConfig.h"
 
 #include "Ai/Dungeon/DungeonClear/Action/DcActionShared.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcFollowerLifecycle.h"
@@ -58,6 +59,31 @@ namespace
             followed = ObjectGuid::Empty;
             DcFollowerLifecycle::UnmarkFollowing(bot->GetObjectGuid());
         }
+    }
+}
+
+namespace
+{
+    // A bot whose master is a real (non-GM-mode) player standing in this very
+    // instance with it: a player's own party bots or recruited companions. Such
+    // a party has a live leader to follow, so the gate must not take stock
+    // "follow" away from it. The strip below exists for bots whose master is
+    // parked somewhere they cannot reach (the `.dc test` driver waits outside
+    // on map 0; a `.dc test watch` GM comes in with GM mode on): their follow
+    // drags them toward the entrance. A party led by a player inside got the
+    // same strip, so every bot froze in place on entering a dungeon unless a
+    // run was started - nothing in the DC ladder moves a bot without a run.
+    // The GM-mode exclusion only matters for the harness, which cannot run in
+    // Companion Mode (it creates bots directly), so it is skipped there: an
+    // admin playing with GM mode on still gets following companions.
+    bool IsLedByPlayerHere(PlayerbotAI* botAI, Player* bot)
+    {
+        Player* master = botAI->GetMaster();
+        return master && master != bot && botAI->HasActivePlayerMaster() &&
+               master->IsInWorld() && !master->IsBeingTeleported() &&
+               (sPlayerbotAIConfig.windrunnerCompanionMode || !master->IsGameMaster()) &&
+               master->GetMapId() == bot->GetMapId() &&
+               master->GetInstanceId() == bot->GetInstanceId();
     }
 }
 
@@ -168,6 +194,21 @@ namespace DcStrategyGate
         bool const strayInCmb = botAI->HasStrategy(kNonCombat, BOT_STATE_COMBAT);
         bool const strayInNon = botAI->HasStrategy(kCombat, BOT_STATE_NON_COMBAT);
 
+        bool const ledByPlayerHere = inDungeon && IsLedByPlayerHere(botAI, bot);
+
+        // Installed while the master was not here yet (the bot entered first,
+        // or the master was mid-teleport), so the install stripped stock
+        // follow and suppressed the relay. The relay flag is set only by that
+        // install, so it doubles as the marker that the gate - not the player
+        // ("stay") - took follow away. Hand them back now that the master is in.
+        if (ledByPlayerHere && hasNon && botAI->IsAreaTriggerRelaySuppressed())
+        {
+            LOG_INFO("playerbots.dungeonclear",
+                     "[DC-GATE] {}: master is here - restoring stock follow", bot->GetName());
+            botAI->SetSuppressAreaTriggerRelay(false);
+            botAI->ChangeStrategy("+follow,+loot", BOT_STATE_NON_COMBAT);
+        }
+
         // Per-engine decision via the pure kernel. The two engines are installed
         // and stripped together, but each is checked independently so a partial
         // state (e.g. a reset that rebuilt only one engine) self-heals.
@@ -217,8 +258,14 @@ namespace DcStrategyGate
         switch (plan.nonCombat)
         {
             case Action::Install:
-                botAI->ChangeStrategy("+dungeon clear,-grind,-travel,-rpg,-rpg jump,-follow,-wander,-bg,-battleground,-lfg,-loot,-gather",
-                                      BOT_STATE_NON_COMBAT);
+                // Led by a player inside: keep follow/wander/loot - the
+                // player is the one moving the party (see IsLedByPlayerHere).
+                if (ledByPlayerHere)
+                    botAI->ChangeStrategy("+dungeon clear,-grind,-travel,-rpg,-rpg jump,-bg,-battleground,-lfg,-gather",
+                                          BOT_STATE_NON_COMBAT);
+                else
+                    botAI->ChangeStrategy("+dungeon clear,-grind,-travel,-rpg,-rpg jump,-follow,-wander,-bg,-battleground,-lfg,-loot,-gather",
+                                          BOT_STATE_NON_COMBAT);
                 // DIAG(riddle, binary test): does the call bite on THIS
                 // object? after=1 and next sweep still hasNon=0 => something
                 // resets the engines between sweeps (hunt the caller).
@@ -261,7 +308,7 @@ namespace DcStrategyGate
         // exactly that spot. DC's own follow-tank drives the followers; the
         // tank needs no follow target at all while a run owns it.
         if (plan.nonCombat == Action::Install)
-            botAI->SetSuppressAreaTriggerRelay(true);
+            botAI->SetSuppressAreaTriggerRelay(!ledByPlayerHere);
         else if (plan.nonCombat == Action::Strip)
             botAI->SetSuppressAreaTriggerRelay(false);
         switch (plan.combat)

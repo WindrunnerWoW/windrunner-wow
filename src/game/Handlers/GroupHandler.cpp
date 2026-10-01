@@ -46,6 +46,18 @@
 
 void WorldSession::SendPartyResult(PartyOperation operation, std::string const& member, PartyResult res)
 {
+    if (res == ERR_NOT_LEADER && GetPlayer())
+    {
+        Group* group = GetPlayer()->GetGroup();
+        sLog.outError("Party operation denied: player=%s guid=%u operation=%u target=%s group=%u leader=%u "
+            "member=%u assistant=%u map=%u instance=%u", GetPlayer()->GetName(), GetPlayer()->GetGUIDLow(),
+            uint32(operation), member.c_str(), group ? group->GetId() : 0u,
+            group ? group->GetLeaderGuid().GetCounter() : 0u,
+            group && group->IsMember(GetPlayer()->GetObjectGuid()) ? 1u : 0u,
+            group && group->IsAssistant(GetPlayer()->GetObjectGuid()) ? 1u : 0u,
+            GetPlayer()->GetMapId(), GetPlayer()->GetInstanceId());
+    }
+
     WorldPacket data(SMSG_PARTY_COMMAND_RESULT, (4 + member.size() + 1 + 4));
     data << uint32(operation);
     data << member;                                         // max len 48
