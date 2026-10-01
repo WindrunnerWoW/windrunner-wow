@@ -16,6 +16,7 @@
 
 #include "scriptPCH.h"
 #include "naxxramas.h"
+#include "RaidSizeOverride.h"
 
 enum
 {
@@ -424,9 +425,9 @@ void RegisterSpellScript(char const* name, SpellScript* (*getter)(SpellEntry con
 
 struct spell_faerlina_poison_bolt_volley : public SpellScript
 {
-    void OnSetTargetMap(Spell* /*spell*/, SpellEffectIndex /*effIdx*/, uint32& /*targetMode*/, float& /*radius*/, uint32& unMaxTargets, bool& /*selectClosestTargets*/) const override
+    void OnSetTargetMap(Spell* spell, SpellEffectIndex /*effIdx*/, uint32& /*targetMode*/, float& /*radius*/, uint32& unMaxTargets, bool& /*selectClosestTargets*/) const override
     {
-        unMaxTargets = 10;
+        unMaxTargets = sRaidSizeOverride.Pick<uint32>(spell->GetCaster()->GetMap(), 10, 5);
     }
 };
 }

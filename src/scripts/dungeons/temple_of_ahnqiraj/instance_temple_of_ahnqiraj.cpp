@@ -26,6 +26,7 @@ EndScriptData */
 
 #include "scriptPCH.h"
 #include "temple_of_ahnqiraj.h"
+#include "RaidSizeOverride.h"
 
 static constexpr uint32 CTHUN_WHISPER_MUTE_DURATION = 60000 * 10;
 static constexpr uint32 CTHUN_FIRST_WHISPER = 90000;
@@ -896,9 +897,9 @@ void RegisterSpellScript(char const* name, SpellScript* (*getter)(SpellEntry con
 
 struct spell_aq40_drain_mana : public SpellScript
 {
-    void OnSetTargetMap(Spell* /*spell*/, SpellEffectIndex /*effIdx*/, uint32& /*targetMode*/, float& /*radius*/, uint32& unMaxTargets, bool& /*selectClosestTargets*/) const override
+    void OnSetTargetMap(Spell* spell, SpellEffectIndex /*effIdx*/, uint32& /*targetMode*/, float& /*radius*/, uint32& unMaxTargets, bool& /*selectClosestTargets*/) const override
     {
-        unMaxTargets = 12;
+        unMaxTargets = sRaidSizeOverride.Pick<uint32>(spell->GetCaster()->GetMap(), 12, 6);
     }
 
     bool OnCheckTarget(Spell const* /*spell*/, Unit* target, SpellEffectIndex /*eff*/) const override

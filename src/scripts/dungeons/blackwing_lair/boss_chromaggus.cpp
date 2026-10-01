@@ -23,6 +23,7 @@ EndScriptData */
 
 #include "scriptPCH.h"
 #include "blackwing_lair.h"
+#include "RaidSizeOverride.h"
 
 enum
 {
@@ -325,7 +326,9 @@ struct boss_chromaggusAI : public ScriptedAI
                     break;
             }
 
-            for (int i = 0; i < urand(11, 15); ++i) // Affliction is applied 11-15 times per cast. Creatures such as pets can be targetted
+            // Affliction is applied 11-15 times per cast (6-8 in a 20-player raid). Creatures such as pets can be targetted
+            uint32 const afflictionCount = sRaidSizeOverride.IsReduced(m_creature->GetMap()) ? urand(6, 8) : urand(11, 15);
+            for (uint32 i = 0; i < afflictionCount; ++i)
             {
                 if (Unit* afflictionTarget = m_creature->SelectAttackingTarget(ATTACKING_TARGET_RANDOM, 0))
                 {
