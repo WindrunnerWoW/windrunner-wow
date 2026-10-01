@@ -64,6 +64,7 @@
 #include "GuidObjectScaling.h"
 #include "PerfStats.h"
 #include "Autoscaling/AutoScaler.hpp"
+#include "RaidSizeOverride.h"
 
 // apply implementation of the singletons
 #include "Policies/SingletonImp.h"
@@ -1637,6 +1638,9 @@ void Creature::SelectLevel(const CreatureInfo *cinfo, float percentHealth, float
         if (cinfo->type == CREATURE_TYPE_CRITTER)
             health = 100'000'000;
     }
+
+    // Reduced raids (mod-20playerraids) scale health from the template value, once per spawn/respawn.
+    health = sRaidSizeOverride.ScaleCreatureHealth(this, health);
 
     SetCreateHealth(health);
     SetMaxHealth(health);

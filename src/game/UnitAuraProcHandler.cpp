@@ -32,6 +32,7 @@
 #include "ObjectAccessor.h"
 #include "CreatureAI.h"
 #include "ScriptMgr.h"
+#include "RaidSizeOverride.h"
 #include "Util.h"
 
 pAuraProcHandler AuraProcHandler[TOTAL_AURAS] =
@@ -568,11 +569,14 @@ SpellAuraProcResult Unit::HandleDummyAuraProc(Unit *pVictim, uint32 damage, int3
                     ++triggeredByAura->GetModifier()->m_amount;
                     triggerAmount = triggeredByAura->GetModifier()->m_amount;
 
-                    if (triggerAmount == 50)
+                    // 20-player raids (mod-20playerraids) need half the melee hits.
+                    int32 const hitDivisor = sRaidSizeOverride.IsReduced(GetMap()) ? 2 : 1;
+
+                    if (triggerAmount == 50 / hitDivisor)
                         MonsterTextEmote(-1531044, nullptr, true); // Cracks
-                    else if (triggerAmount == 100)
+                    else if (triggerAmount == 100 / hitDivisor)
                         MonsterTextEmote(-1531045, nullptr, true); // Shatter
-                    else if (triggerAmount == 150)
+                    else if (triggerAmount == 150 / hitDivisor)
                     {
                         RemoveAurasDueToSpell(25937);
                         triggered_spell_id = 25938; // Explode
