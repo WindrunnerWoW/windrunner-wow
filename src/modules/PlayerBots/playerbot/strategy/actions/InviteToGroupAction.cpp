@@ -25,6 +25,9 @@ namespace ai
 
         if (Group* group = inviter->GetGroup())
         {
+            if (!group->IsLeader(inviter->GetObjectGuid()) && !group->IsAssistant(inviter->GetObjectGuid()))
+                return false;
+
             if(GetBotAI(player) && !GetBotAI(player)->IsRealPlayer())
                 if (!group->IsRaidGroup() && group->GetMembersCount() > 4)
                     group->ConvertToRaid();
@@ -88,7 +91,10 @@ namespace ai
             (recruiterJoin || event.IsOwnerCommand());
         bool invite = Invite(master, bot, requestedJoin);
 
-        if (invite && (event.getSource() == "create group"))
+        // Companion recruitment invites through the owner's session and then
+        // drops the pending invite on the next tick. Accept in the same call,
+        // before that retry can cancel it.
+        if (invite && (event.getSource() == "create group" || recruiterJoin))
         {
             if (!ai->DoSpecificAction("accept invitation", event, true))
                 return false;

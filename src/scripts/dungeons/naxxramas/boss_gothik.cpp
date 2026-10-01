@@ -23,6 +23,7 @@ EndScriptData */
 
 #include "scriptPCH.h"
 #include "naxxramas.h"
+#include "RaidSizeOverride.h"
 
 enum
 {
@@ -352,6 +353,13 @@ struct boss_gothikAI : public ScriptedAI
         }
     }
 
+    // A side counts as empty at or below this many living players: 10 normally,
+    // 4 in a 20-player raid (so each side needs at least 5).
+    uint32 MinPlayersPerSideThreshold() const
+    {
+        return sRaidSizeOverride.Pick<uint32>(m_creature->GetMap(), 10, 4);
+    }
+
     bool HasLessPlayersPerSide(uint32 count)
     {
         MapRefManager const&  lPlayers = m_pInstance->GetMap()->GetPlayers();
@@ -415,7 +423,7 @@ struct boss_gothikAI : public ScriptedAI
                 if (m_uiSpeechTimer < uiDiff)
                 {
                     // abort entering phase 1 if not enough players per side
-                    if (HasLessPlayersPerSide(10))
+                    if (HasLessPlayersPerSide(MinPlayersPerSideThreshold()))
                     {
                         EnterEvadeMode();
                         return;
@@ -450,7 +458,7 @@ struct boss_gothikAI : public ScriptedAI
                 if (m_uiSummonTimer < uiDiff)
                 {
                     // abort entering phase 2 if not enough players per side
-                    if (HasLessPlayersPerSide(10))
+                    if (HasLessPlayersPerSide(MinPlayersPerSideThreshold()))
                     {
                         EnterEvadeMode();
                         return;

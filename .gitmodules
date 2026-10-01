@@ -18,3 +18,7 @@
 [submodule "modules/mod-companion-recruiter"]
 	path = modules/mod-companion-recruiter
 	url = https://github.com/WrkX/mod-companion-recruiter.git
+[submodule "modules/mod-20playerraids"]
+	path = modules/mod-20playerraids
+	url = https://github.com/WrkX/mod-20playerraids.git
+	branch = main

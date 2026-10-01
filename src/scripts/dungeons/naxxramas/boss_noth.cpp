@@ -18,6 +18,7 @@
 
 #include "scriptPCH.h"
 #include "naxxramas.h"
+#include "RaidSizeOverride.h"
 #include "Duration.h"
 
 #include <algorithm>
@@ -469,9 +470,12 @@ void RegisterSpellScript(char const* name, SpellScript* (*getter)(SpellEntry con
 
 struct spell_noth_curse_of_the_plaguebringer : public SpellScript
 {
-    void OnSetTargetMap(Spell* /*spell*/, SpellEffectIndex /*effIdx*/, uint32& /*targetMode*/, float& /*radius*/, uint32& /*unMaxTargets*/, bool& selectClosestTargets) const override
+    void OnSetTargetMap(Spell* spell, SpellEffectIndex /*effIdx*/, uint32& /*targetMode*/, float& /*radius*/, uint32& unMaxTargets, bool& selectClosestTargets) const override
     {
         selectClosestTargets = true;
+
+        if (sRaidSizeOverride.IsReduced(spell->GetCaster()->GetMap()))
+            unMaxTargets = 10;
     }
 };
 }

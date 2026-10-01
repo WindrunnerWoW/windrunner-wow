@@ -157,6 +157,8 @@ set (game_SRCS
     Maps/MapReference.cpp
     Maps/MoveMap.cpp
     Maps/PathFinder.cpp
+    Maps/RaidSizeOverride.cpp
+    Maps/RaidSizeOverride.h
     Maps/ScriptCommands.cpp
     Maps/ZoneScript.cpp
     Maps/ZoneScriptMgr.cpp

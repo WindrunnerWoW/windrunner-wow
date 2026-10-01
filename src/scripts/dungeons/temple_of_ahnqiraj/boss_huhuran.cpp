@@ -25,6 +25,7 @@ SDCategory: Temple of Ahn'Qiraj
 EndScriptData */
 
 #include "scriptPCH.h"
+#include "RaidSizeOverride.h"
 #include "temple_of_ahnqiraj.h"
 
 enum
@@ -185,9 +186,12 @@ void RegisterSpellScript(char const* name, SpellScript* (*getter)(SpellEntry con
 
 struct spell_huhuran_poison_bolt_volley : public SpellScript
 {
-    void OnSetTargetMap(Spell* /*spell*/, SpellEffectIndex /*effIdx*/, uint32& /*targetMode*/, float& /*radius*/, uint32& /*unMaxTargets*/, bool& selectClosestTargets) const override
+    void OnSetTargetMap(Spell* spell, SpellEffectIndex /*effIdx*/, uint32& /*targetMode*/, float& /*radius*/, uint32& unMaxTargets, bool& selectClosestTargets) const override
     {
         selectClosestTargets = true;
+
+        if (sRaidSizeOverride.IsReduced(spell->GetCaster()->GetMap()))
+            unMaxTargets = 8;
     }
 };
 }

@@ -1,6 +1,7 @@
 #include "AutoScaler.hpp"
 #include "Database/DatabaseEnv.h"
 #include "Map.h"
+#include "RaidSizeOverride.h"
 #include "World.h"
 
 #include <mutex>
@@ -48,6 +49,10 @@ void AutoScaler::Scale(DungeonMap* map)
     if (!sWorld.getConfig(CONFIG_BOOL_AUTOSCALER_ENABLE))
         return;
 
+    // Reduced raids use a fixed health scale instead of player-count scaling.
+    if (sRaidSizeOverride.IsReduced(map->GetId()))
+        return;
+
     uint32 playerCount = map->GetPlayersCountExceptGMs();
     uint32 maxCount = map->GetMaxPlayers();
 
@@ -78,6 +83,9 @@ void AutoScaler::ScaleCreature(Creature* creature, uint32 playerCount, uint32 ma
         return;
 
     if (creature->IsPet() && creature->GetOwner() && creature->GetOwner()->IsPlayer())
+        return;
+
+    if (sRaidSizeOverride.IsReduced(creature->GetMapId()))
         return;
 
     if (creature->IsDead())
@@ -157,8 +165,12 @@ void AutoScaler::ScaleCreature(Creature* creature, uint32 playerCount, uint32 ma
 
 void AutoScaler::GenerateScaledMoneyLoot(Creature* creature, Loot* loot)
 {
-    if (!sWorld.getConfig(CONFIG_BOOL_AUTOSCALER_ENABLE))
+    // Normal gold when the autoscaler is off, and on reduced raids.
+    if (!sWorld.getConfig(CONFIG_BOOL_AUTOSCALER_ENABLE) || sRaidSizeOverride.IsReduced(creature->GetMapId()))
+    {
+        loot->GenerateMoneyLoot(creature->GetGoldMin(), creature->GetGoldMax());
         return;
+    }
 
     uint32 playerCount = creature->GetMap()->GetPlayersCountExceptGMs();
     const uint32 maxCount = std::max<uint32>(((DungeonMap*)creature->GetMap())->GetMaxPlayers(), 1);

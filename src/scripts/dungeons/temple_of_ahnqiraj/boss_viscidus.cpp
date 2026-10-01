@@ -26,6 +26,7 @@ EndScriptData */
 
 #include "scriptPCH.h"
 #include "temple_of_ahnqiraj.h"
+#include "RaidSizeOverride.h"
 #include <bitset>
 
 enum
@@ -418,7 +419,13 @@ struct boss_viscidusAI : public ScriptedAI
         {
             ++m_uiHitCount;
 
-            if (m_uiHitCount >= HITCOUNT_FREEZE)
+            // 20-player raids need half the frost hits for each milestone.
+            uint32 const hitDivisor = sRaidSizeOverride.IsReduced(m_creature->GetMap()) ? 2 : 1;
+            uint32 const hitSlow = HITCOUNT_SLOW / hitDivisor;
+            uint32 const hitSlowMore = HITCOUNT_SLOW_MORE / hitDivisor;
+            uint32 const hitFreeze = HITCOUNT_FREEZE / hitDivisor;
+
+            if (m_uiHitCount >= hitFreeze)
             {
                 m_uiPhase = PHASE_FROZEN;
                 m_uiHitCount = 0;
@@ -427,18 +434,18 @@ struct boss_viscidusAI : public ScriptedAI
                 m_creature->RemoveAurasDueToSpell(SPELL_VISCIDUS_SLOWED_MORE);
                 DoCastSpellIfCan(m_creature, SPELL_VISCIDUS_FREEZE, CF_TRIGGERED);
             }
-            else if (m_uiHitCount >= HITCOUNT_SLOW_MORE)
+            else if (m_uiHitCount >= hitSlowMore)
             {
-                if (m_uiHitCount == HITCOUNT_SLOW_MORE)
+                if (m_uiHitCount == hitSlowMore)
                 {
                     DoScriptText(EMOTE_FREEZE, m_creature);
                     m_creature->RemoveAurasDueToSpell(SPELL_VISCIDUS_SLOWED);
                 }
                 DoCastSpellIfCan(m_creature, SPELL_VISCIDUS_SLOWED_MORE, CF_TRIGGERED);
             }
-            else if (m_uiHitCount >= HITCOUNT_SLOW)
+            else if (m_uiHitCount >= hitSlow)
             {
-                if (m_uiHitCount == HITCOUNT_SLOW)
+                if (m_uiHitCount == hitSlow)
                 {
                     DoScriptText(EMOTE_SLOW, m_creature);
                 }

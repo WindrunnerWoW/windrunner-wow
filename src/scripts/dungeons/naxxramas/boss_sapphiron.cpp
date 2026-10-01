@@ -19,6 +19,7 @@
 
 #include "scriptPCH.h"
 #include "naxxramas.h"
+#include "RaidSizeOverride.h"
 #include "MovementGenerator.h"
 
 enum
@@ -800,9 +801,9 @@ void RegisterSpellScript(char const* name, SpellScript* (*getter)(SpellEntry con
 
 struct spell_sapphiron_life_drain : public SpellScript
 {
-    void OnSetTargetMap(Spell* /*spell*/, SpellEffectIndex /*effIdx*/, uint32& /*targetMode*/, float& /*radius*/, uint32& unMaxTargets, bool& /*selectClosestTargets*/) const override
+    void OnSetTargetMap(Spell* spell, SpellEffectIndex /*effIdx*/, uint32& /*targetMode*/, float& /*radius*/, uint32& unMaxTargets, bool& /*selectClosestTargets*/) const override
     {
-        unMaxTargets = urand(7, 10);
+        unMaxTargets = sRaidSizeOverride.IsReduced(spell->GetCaster()->GetMap()) ? urand(4, 5) : urand(7, 10);
     }
 };
 
