@@ -16,6 +16,7 @@
 
 #include "scriptPCH.h"
 #include "blackwing_lair.h"
+#include "RaidSizeOverride.h"
 
 // Razorgore Phase 2 Script
 enum
@@ -625,7 +626,7 @@ struct trigger_orb_of_commandAI : public ScriptedAI
                         pRazorgore->StopMoving();
                     }
 
-                    pRazorgore->SetMaxHealth(225000);
+                    pRazorgore->SetMaxHealth(sRaidSizeOverride.ScaleCreatureHealth(pRazorgore, 225000));
 
                     if (Unit* pChanneler = m_creature->GetMap()->GetUnit(m_uiPossesseurGuid))
                     {
@@ -653,8 +654,9 @@ struct trigger_orb_of_commandAI : public ScriptedAI
                 }
                 else if (!pRazorgore->HasAura(SPELL_POSSESS_ORB) && m_uiPossesseurGuid) // Possess finished
                 {
-                    if (pRazorgore->GetMaxHealth() != 450000)
-                        pRazorgore->SetMaxHealth(450000);
+                    uint32 const maxHealth = sRaidSizeOverride.ScaleCreatureHealth(pRazorgore, 450000);
+                    if (pRazorgore->GetMaxHealth() != maxHealth)
+                        pRazorgore->SetMaxHealth(maxHealth);
 
                     pRazorgore->GetMotionMaster()->Initialize();
                     m_creature->SetUInt64Value(UNIT_FIELD_CHANNEL_OBJECT, 0);

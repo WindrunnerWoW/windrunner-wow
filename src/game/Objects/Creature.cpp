@@ -1639,7 +1639,7 @@ void Creature::SelectLevel(const CreatureInfo *cinfo, float percentHealth, float
             health = 100'000'000;
     }
 
-    // Reduced raids (mod-20playerraids) scale health from the template value, once per spawn/respawn.
+    // Reduced raids (windrunner-20playerraids) scale health from the template value, once per spawn/respawn.
     health = sRaidSizeOverride.ScaleCreatureHealth(this, health);
 
     SetCreateHealth(health);

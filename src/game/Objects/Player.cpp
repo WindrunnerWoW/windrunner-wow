@@ -6573,11 +6573,6 @@ void Player::RepopAtGraveyard()
     // Deliberately solo only - with a group present someone can resurrect, and
     // this would be a free pass. Map::IsDungeon() covers raids and excludes
     // battlegrounds, which are their own map type.
-    // Bots get this regardless of the config and regardless of a group: they
-    // cannot walk back in through an instance portal (LfgTeleportAction is
-    // MANGOSBOT_TWO only), so a wipe would strand them as ghosts at the outdoor
-    // graveyard for good and the group would be over. Not a perk - the only way
-    // back to the party.
     // "Solo" means nobody who could resurrect you: no group, or a group whose
     // only other members are bots. After a wipe a bot party is no more help
     // than an empty one, and releasing the spirit already means you chose not
@@ -6597,9 +6592,10 @@ void Player::RepopAtGraveyard()
         }
     }
 
-    bool const repopAtEntrance =
-        (sWorld.getConfig(CONFIG_BOOL_SOLO_DUNGEON_REPOP_ALIVE) && noHumanHelp) ||
-        Script_IsAIControlled(this);
+    // AI resurrection is governed by its group-wide recovery timer, not by
+    // releasing spirit. Keep the solo entrance option for human players.
+    bool const repopAtEntrance = sWorld.getConfig(CONFIG_BOOL_SOLO_DUNGEON_REPOP_ALIVE) &&
+        noHumanHelp && !Script_IsAIControlled(this);
 
     if (!IsAlive() && repopAtEntrance && GetMap() && GetMap()->IsDungeon())
     {

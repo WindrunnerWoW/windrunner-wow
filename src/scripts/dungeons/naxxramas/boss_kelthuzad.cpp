@@ -16,6 +16,7 @@
 
 #include "scriptPCH.h"
 #include "naxxramas.h"
+#include "RaidSizeOverride.h"
 
 enum
 {
@@ -977,8 +978,9 @@ struct mob_abomAI : public kt_p1AddAI
     void Reset() override
     {
         mortalWoundTimer = 7500;
-        m_creature->SetMaxHealth(90000);
-        m_creature->SetHealth(90000);
+        uint32 const health = sRaidSizeOverride.ScaleCreatureHealth(m_creature, 90000);
+        m_creature->SetMaxHealth(health);
+        m_creature->SetHealth(health);
     }
 
     void UpdateAI(const uint32 diff) override
@@ -1018,8 +1020,9 @@ struct mob_soldierAI : public kt_p1AddAI
 
     void Reset() override
     {
-        m_creature->SetMaxHealth(2000);
-        m_creature->SetHealth(2000);
+        uint32 const health = sRaidSizeOverride.ScaleCreatureHealth(m_creature, 2000);
+        m_creature->SetMaxHealth(health);
+        m_creature->SetHealth(health);
     }
 
     void UpdateAI(const uint32 diff) override
@@ -1065,8 +1068,9 @@ struct mob_soulweaverAI : public kt_p1AddAI
     void Reset() override
     {
         hasHitSomeone = false;
-        m_creature->SetMaxHealth(70000);
-        m_creature->SetHealth(70000);
+        uint32 const health = sRaidSizeOverride.ScaleCreatureHealth(m_creature, 70000);
+        m_creature->SetMaxHealth(health);
+        m_creature->SetHealth(health);
     }
 
     void UpdateAI(const uint32 diff) override

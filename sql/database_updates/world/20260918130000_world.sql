@@ -49,11 +49,11 @@ VALUES
     (8000101, 1244, 'Raid Boss', 1, 1, 1, 1, 35, 1);
 
 INSERT INTO `quest_template`
-    (`entry`, `Method`, `MinLevel`, `QuestLevel`, `RequiredRaces`, `Type`, `QuestFlags`, `SpecialFlags`,
+    (`entry`, `Method`, `ZoneOrSort`, `MinLevel`, `QuestLevel`, `RequiredRaces`, `Type`, `QuestFlags`, `SpecialFlags`,
      `Title`, `Details`, `Objectives`, `OfferRewardText`, `RequestItemsText`, `ObjectiveText1`,
      `ReqCreatureOrGOId1`, `ReqCreatureOrGOCount1`, `RewItemId1`, `RewItemCount1`)
 VALUES
-(9000000, 2, 1, 60, 589, 41, 64, 2049,
+(9000000, 2, 1519, 1, 60, 589, 41, 64, 2049,
      'Weekly: Arisa''s Call',
      'I have received word from Valeera Windrunner: the Alliance fronts are under pressure, and the Horde is pushing hard. The battlemasters need fighters they can rely upon; soldiers who will stand their ground and see each clash through, whether it ends in victory or defeat.',
      'Complete five battleground matches for the Alliance.',
@@ -61,7 +61,7 @@ VALUES
      'The Alliance fronts still need you, $N. Have you seen five battleground matches through to their end?',
      'Battleground matches completed',
      8000100, 5, 1985500, 3),
-    (9000001, 2, 60, 60, 589, 62, 64, 2049,
+    (9000001, 2, 1519, 60, 60, 589, 62, 64, 2049,
      'Weekly: Mighty Threats',
      'Valeera Windrunner has told me that powerful enemies are gathering strength in the deepest strongholds of Azeroth. Their leaders must be struck down before their schemes bear fruit.$b$bBring down five mighty threats, $N, and return to me.',
      'Defeat five raid bosses.',
@@ -69,7 +69,7 @@ VALUES
      'Five mighty foes must fall before my task is done. How many still draw breath, $N?',
      'Raid bosses defeated',
      8000101, 5, 1985500, 3),
-    (9000002, 2, 1, 60, 434, 41, 64, 2049,
+    (9000002, 2, 1637, 1, 60, 434, 41, 64, 2049,
      'Weekly: Seena''s Call',
      'I have received word from Sylvanas Windrunner: the Alliance is pressing hard, and the battlemasters need fighters they can rely upon. Stand your ground and see each clash through, whether it ends in victory or defeat.',
      'Complete five battleground matches for the Horde.',
@@ -77,7 +77,7 @@ VALUES
      'The Horde fronts still need you, $N. Have you seen five battleground matches through to their end?',
      'Battleground matches completed',
      8000100, 5, 1985500, 3),
-    (9000003, 2, 60, 60, 434, 62, 64, 2049,
+    (9000003, 2, 1637, 60, 60, 434, 62, 64, 2049,
      'Weekly: Mighty Threats',
      'I have heard dark tidings from the deepest strongholds of Azeroth. Powerful enemies gather behind their walls, and the Horde needs them struck down before their schemes bear fruit.',
      'Defeat five raid bosses.',
