@@ -569,7 +569,7 @@ SpellAuraProcResult Unit::HandleDummyAuraProc(Unit *pVictim, uint32 damage, int3
                     ++triggeredByAura->GetModifier()->m_amount;
                     triggerAmount = triggeredByAura->GetModifier()->m_amount;
 
-                    // 20-player raids (mod-20playerraids) need half the melee hits.
+                    // 20-player raids (windrunner-20playerraids) need half the melee hits.
                     int32 const hitDivisor = sRaidSizeOverride.IsReduced(GetMap()) ? 2 : 1;
 
                     if (triggerAmount == 50 / hitDivisor)

@@ -353,11 +353,14 @@ struct boss_gothikAI : public ScriptedAI
         }
     }
 
-    // A side counts as empty at or below this many living players: 10 normally,
-    // 4 in a 20-player raid (so each side needs at least 5).
+    // Reduced raids require a quarter of the configured cap on each side,
+    // with at least one player per side. The original raid still needs 11.
     uint32 MinPlayersPerSideThreshold() const
     {
-        return sRaidSizeOverride.Pick<uint32>(m_creature->GetMap(), 10, 4);
+        if (RaidSizeOverride::Entry const* entry = sRaidSizeOverride.Find(m_creature->GetMapId()))
+            return std::max<uint32>(1, entry->maxPlayers / 4) - 1;
+
+        return 10;
     }
 
     bool HasLessPlayersPerSide(uint32 count)
@@ -391,7 +394,7 @@ struct boss_gothikAI : public ScriptedAI
                 }
             }
         }
-        // if there are less than 10 people on one of the sides we consider it as
+        // If a side does not meet the required roster, we consider it as
         // "everyone is on the same side". That to avoid the whole raid afking on spectral
         // side, waiting for gothik to TP down, in which case they have 40 sec to kill him
         // before the gates would ordinarily open.

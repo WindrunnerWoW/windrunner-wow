@@ -52,5 +52,5 @@ uint32 RaidSizeOverride::ScaleCreatureHealth(Creature const* creature, uint32 he
     if (!entry)
         return health;
 
-    return std::max<uint32>(1, static_cast<uint32>(health * entry->healthMultiplier));
+    return std::max<uint32>(1, static_cast<uint32>(health * static_cast<double>(entry->healthMultiplier)));
 }
