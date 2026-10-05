@@ -1,7 +1,7 @@
 /*
  * Raid size override registry.
  *
- * Lets a module (mod-20playerraids) shrink selected raid maps to a smaller roster.
+ * Lets a module (windrunner-20playerraids) shrink selected raid maps to a smaller roster.
  * The module registers maps at startup; the core and encounter scripts query
  * this registry for the entry cap, creature health scaling, autoscaler bypass
  * and per-encounter target counts. With nothing registered every query is a

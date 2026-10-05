@@ -156,6 +156,11 @@ namespace ai
     public:
         virtual bool Execute(Event& event) override
         {
+            // Automatic corpse recovery must respect the companion's quiet
+            // period instead of resurrecting and sending it to its home town.
+            if (sPlayerbotAIConfig.windrunnerCompanionMode && IsUnreachableCorpseRecovery())
+                return ai->DoSpecificAction("auto revive", event, true);
+
             Player* requester = event.getOwner() ? event.getOwner() : GetMaster();
 
             sLog.outDetail("Repop bot #%d %s:%d <%s>", bot->GetGUIDLow(), bot->GetTeam() == ALLIANCE ? "A" : "H", bot->GetLevel(), bot->GetName());

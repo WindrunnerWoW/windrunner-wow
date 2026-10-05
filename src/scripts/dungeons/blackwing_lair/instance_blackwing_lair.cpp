@@ -23,6 +23,7 @@ EndScriptData */
 
 #include "scriptPCH.h"
 #include "blackwing_lair.h"
+#include "RaidSizeOverride.h"
 
 struct RazCoords
 {
@@ -995,8 +996,9 @@ struct go_oeuf_razAI: public GameObjectAI
                 if (pInstance->GetData64(DATA_EGG) == DONE)
                 {
                     pUser->RemoveAllAuras();
-                    if (pUser->GetMaxHealth() != 450000)
-                        pUser->SetMaxHealth(450000);
+                    uint32 const maxHealth = sRaidSizeOverride.ScaleCreatureHealth(static_cast<Creature*>(pUser), 450000);
+                    if (pUser->GetMaxHealth() != maxHealth)
+                        pUser->SetMaxHealth(maxHealth);
                     pUser->CastSpell(pUser, SPELL_WARMING_FLAMES, true);
                 }
             }

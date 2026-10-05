@@ -1663,6 +1663,9 @@ void PlayerbotAI::OnResurrected()
         }
 
         ChangeEngine(BotState::BOT_STATE_NON_COMBAT);
+        // Death leaves cached targets and movement from the corpse run.
+        // Reset runtime state while retaining the owner's chosen strategies.
+        Reset(true);
     }
 }
 
