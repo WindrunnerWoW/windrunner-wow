@@ -38,7 +38,10 @@ namespace DBUpdater
 
     protected:
 
-        bool ExecuteUpdate(const FileMigration& fileData, DatabaseType* targetDatabase) const;
+        bool ExecuteUpdate(const FileMigration& fileData, DatabaseType* targetDatabase, bool bootstrap = false) const;
+
+        bool ProcessPlayerbotUpdates(const fs::path& updatesRoot) const;
+        bool ProcessBootstrapUpdates(const fs::path& targetPath, DatabaseType* targetDatabase, const std::string& moduleName) const;
 
         bool ProcessTargetUpdates(const fs::directory_entry& targetPath, DatabaseType* targetDatabase, bool region, bool sortByName, std::string const& moduleName = "") const;
         bool ProcessModuleUpdates(const fs::path& modulesPath, const std::string& targetFolder, DatabaseType* targetDatabase, bool sortByName) const;

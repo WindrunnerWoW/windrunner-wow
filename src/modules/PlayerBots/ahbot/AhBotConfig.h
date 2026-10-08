@@ -24,10 +24,11 @@ public:
     bool sellerEnabled;
     bool buyerEnabled;
     uint32 updateInterval;
+    uint32 cacheRefreshSeconds;
+    uint32 neutralSharePercent;
     uint32 historyDays, maxSellInterval;
     uint32 itemBuyMinInterval, itemBuyMaxInterval;
-    uint32 itemSellMinInterval, itemSellMaxInterval;
-    uint32 alwaysAvailableMoney;
+    uint32 itemSellMinInterval, itemSellMaxInterval;    uint32 alwaysAvailableMoney;
     float priceMultiplier, priceQualityMultiplier;
     uint32 defaultMinPrice, stackReducePrice;
     uint32 maxItemLevel, maxRequiredLevel;

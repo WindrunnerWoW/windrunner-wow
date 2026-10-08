@@ -146,21 +146,15 @@ it against a checkout to re-derive them.
 
 ### Playerbot tables
 
-Built with `-DBUILD_PLAYERBOTS=ON`? Then the module's own tables have to go in as
-well, or the server aborts on startup with `Table 'ai_playerbot_weightscales'
-doesn't exist` — and it aborts through an assertion, so the message scrolls past
-in a stack trace rather than telling you plainly what to do.
+With `-DBUILD_PLAYERBOTS=ON`, enable `Database.AutoUpdate.Enabled = 1` after
+installing the core databases and base world content. Startup automatically
+imports PlayerBots' world, Classic, and character SQL. Existing tables are
+preserved, and imported files are tracked by hash. The auction-market data file
+also imports automatically and refreshes when its contents change.
 
-```bash
-cd src/modules/PlayerBots/sql
-cat world/*.sql world/classic/*.sql | mysql -u root -p tw_world
-cat characters/*.sql | mysql -u root -p tw_char
-```
-
-Eight files into the world database, six into the characters one. `world/classic`
-is the vanilla set; the `tbc` and `wotlk` siblings do not apply here. Anything
-under `sql/other` is maintenance — deleting and resetting bots — not part of a
-first install.
+CMake installs these scripts under `sql/playerbots`. For a custom location, set
+`Database.AutoUpdate.PlayerbotsPath` to the root containing `world/` and
+`characters/`. Maintenance and other expansion scripts are excluded.
 
 
 > **Caveat.** The auto-updater only works on a database built through it from the

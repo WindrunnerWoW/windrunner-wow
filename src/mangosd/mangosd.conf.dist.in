@@ -68,6 +68,11 @@ Database.AutoUpdate.ModulesPath = ""
   
 Database.AutoUpdate.SortByName = 1
 
+# PlayerBots installation SQL root (contains world/ and characters/).
+# Empty discovers installed/bundled SQL or the source checkout automatically.
+# Existing tables are preserved; market data refreshes once per file hash.
+Database.AutoUpdate.PlayerbotsPath = ""
+
 # Automatically committing world changes to github. Set to 0 to disable.
 
 AutoCommit.Minutes = 0
@@ -447,7 +452,7 @@ Progression.NoQuestXpToGold = 1
 # Progression.UnlinkedAuctionHouses
 # If set, every auction house is separate until patch 1.9. Does not apply to goblin auction houses.
 
-Progression.UnlinkedAuctionHouses = 1
+Progression.UnlinkedAuctionHouses = 0
 
 # DebuffLimit
 # How many debuffs can be present on a target simultaneously
@@ -458,7 +463,7 @@ DebuffLimit = 40
 # Enable logging of GM commands. (All SQL code will be written to a log file)
 # If a new day starts (00:00:00), a new file is created, the old file will not be deleted.
 
-LogSQL = 1
+LogSQL = 0
 
 # PidFile. World daemon PID file.
 

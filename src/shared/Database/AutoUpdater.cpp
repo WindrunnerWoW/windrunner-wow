@@ -3,6 +3,7 @@
 #include "Config/Config.h"
 #include "Auth/Sha1.h"
 #include "Util.h"
+#include "SqlBootstrapPolicy.h"
 
 #include <sstream>
 #include <openssl/sha.h>
@@ -280,7 +281,66 @@ namespace DBUpdater
         return true;
     }
 
-    bool AutoUpdater::ExecuteUpdate(const FileMigration& migration, DatabaseType* targetDatabase) const
+    bool AutoUpdater::ProcessBootstrapUpdates(const fs::path& targetPath, DatabaseType* targetDatabase, const std::string& moduleName) const
+    {
+        auto files = LoadFileMigrations(directory_entry{targetPath}, moduleName);
+        auto applied = LoadDatabaseMigrations(targetDatabase);
+        std::vector<FileMigration> pending;
+        for (auto& entry : files)
+        {
+            if (!applied.count(entry.first))
+                pending.push_back(std::move(entry.second));
+        }
+        std::sort(pending.begin(), pending.end(), [](const FileMigration& a, const FileMigration& b)
+        {
+            return a.Name < b.Name;
+        });
+        for (const auto& migration : pending)
+        {
+            // This maintained snapshot is a data refresh, not a table bootstrap.
+            // Execute it once per content hash so new samples replace old stats.
+            bool bootstrap = migration.Name != "ai_playerbot_ahbot_data";
+            if (!ExecuteUpdate(migration, targetDatabase, bootstrap))
+                return false;
+        }
+        return true;
+    }
+
+    bool AutoUpdater::ProcessPlayerbotUpdates(const fs::path& updatesRoot) const
+    {
+#ifdef TW_PLAYERBOTS_SQL_SOURCE_DIR
+        std::string configured = sConfig.GetStringDefault("Database.AutoUpdate.PlayerbotsPath", "");
+        std::vector<fs::path> candidates;
+        if (!configured.empty())
+            candidates.emplace_back(configured);
+        else
+            candidates = {updatesRoot.parent_path() / "playerbots", "sql/playerbots", "../sql/playerbots",
+                TW_PLAYERBOTS_SQL_INSTALL_DIR, TW_PLAYERBOTS_SQL_SOURCE_DIR};
+
+        fs::path root;
+        for (const auto& candidate : candidates)
+        {
+            if (is_directory(candidate / "characters") && is_directory(candidate / "world" / "classic"))
+            {
+                root = candidate;
+                break;
+            }
+        }
+        if (root.empty())
+        {
+            sLog.outError("[DB Auto-Updater] PlayerBots SQL not found; install sql/playerbots or set Database.AutoUpdate.PlayerbotsPath.");
+            return false;
+        }
+        sLog.outInfo("[DB Auto-Updater] Processing PlayerBots installation SQL from %s.", root.string().c_str());
+        return ProcessBootstrapUpdates(root / "world", &WorldDatabase, "playerbots-world") &&
+            ProcessBootstrapUpdates(root / "world" / "classic", &WorldDatabase, "playerbots-world") &&
+            ProcessBootstrapUpdates(root / "characters", &CharacterDatabase, "playerbots-characters");
+#else
+        return true;
+#endif
+    }
+
+    bool AutoUpdater::ExecuteUpdate(const FileMigration& migration, DatabaseType* targetDatabase, bool bootstrap) const
     {
         sLog.outInfo("[DB Auto-Updater] Attempting to execute update %s%s, hash %s.", migration.Name.c_str(),
             ModuleLogSuffix(migration.Module).c_str(), migration.Hash.c_str());
@@ -289,9 +349,6 @@ namespace DBUpdater
         std::string sqlString{ migration.FileData.begin(), migration.FileData.end() };
 
 
-
-        if (!targetDatabase->BeginTransaction())
-            return false;
 
       
         
@@ -433,10 +490,65 @@ namespace DBUpdater
             return false;
         }
 
-        for (const auto& query : queries)
+        SqlBootstrapPolicy policy(bootstrap ? queries : std::vector<std::string>{});
+        for (const auto& table : policy.tables)
         {
-            targetDatabase->Execute(query.c_str());
+            std::unique_ptr<QueryResult> result{targetDatabase->PQuery(
+                "SELECT COUNT(*) FROM information_schema.TABLES WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '%s'", table.c_str())};
+            if (!result)
+                return false;
+            if (result->Fetch()[0].GetUInt32())
+            {
+                policy.existingTables.insert(table);
+                if (policy.seededTables.count(table))
+                {
+                    // COUNT always returns a row, so a query failure cannot
+                    // accidentally classify a populated table as empty.
+                    std::unique_ptr<QueryResult> count{targetDatabase->PQuery("SELECT COUNT(*) FROM `%s`", table.c_str())};
+                    if (!count)
+                        return false;
+                    if (!count->Fetch()[0].GetUInt64())
+                        policy.emptySeedTables.insert(table);
+                }
+            }
         }
+        // Index bootstrap statements also need adoption on an existing world DB.
+        std::set<size_t> existingIndexes;
+        if (bootstrap)
+        {
+            for (size_t i = 0; i < queries.size(); ++i)
+            {
+                std::string table, index;
+                if (!SqlBootstrapPolicy::CreatedIndex(queries[i], table, index))
+                    continue;
+                std::unique_ptr<QueryResult> result{targetDatabase->PQuery(
+                    "SELECT COUNT(*) FROM information_schema.STATISTICS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = '%s' AND INDEX_NAME = '%s'",
+                    table.c_str(), index.c_str())};
+                if (!result)
+                    return false;
+                if (result->Fetch()[0].GetUInt32())
+                    existingIndexes.insert(i);
+            }
+        }
+        if (!targetDatabase->BeginTransaction())
+            return false;
+
+        size_t skipped = 0;
+        for (size_t i = 0; i < queries.size(); ++i)
+        {
+            if (bootstrap && (policy.ShouldSkip(queries[i]) || existingIndexes.count(i)))
+            {
+                ++skipped;
+                continue;
+            }
+            if (!targetDatabase->Execute(queries[i].c_str()))
+            {
+                targetDatabase->RollbackTransaction();
+                return false;
+            }
+        }
+        if (bootstrap)
+            sLog.outInfo("[DB Auto-Updater] %s: preserved existing tables/indexes (%zu statements skipped).", migration.Name.c_str(), skipped);
 
         targetDatabase->PExecute("INSERT INTO `%s` (`Name`, `Module`, `Hash`, `AppliedAt`) VALUES (\'%s\', \'%s\', \'%s\', NOW());",
             MigrationTable, migration.Name.c_str(), migration.Module.c_str(), migration.Hash.c_str());
@@ -519,6 +631,9 @@ namespace DBUpdater
             return false;
 
         if (!ProcessTargetUpdates(worldUpdatePath, &WorldDatabase, false, sortByName))
+            return false;
+
+        if (!ProcessPlayerbotUpdates(folderPath))
             return false;
 
         if (!ProcessModuleUpdates(modulesPath, authUpdateFolder, &LoginDatabase, sortByName))
