@@ -803,7 +803,7 @@ inline void Map::UpdateCells(uint32 map_diff)
     else
         UpdateActiveCellsSynch(now, diff);
 
-    if (IsContinent() && m_motionThreads->status() == ThreadPool::Status::READY && !unitsMvtUpdate.empty())
+    if (IsContinent() && HasMotionThreads() && !unitsMvtUpdate.empty())
     {
         for (auto it = unitsMvtUpdate.begin(); it != unitsMvtUpdate.end(); it++)
             m_motionThreads << [it,diff](){
@@ -2846,6 +2846,11 @@ void Map::RemoveUnitFromMovementUpdate(Unit *unit)
 {
     std::unique_lock<std::mutex> lock(unitsMvtUpdate_lock);
     unitsMvtUpdate.erase(unit);
+}
+
+bool Map::HasMotionThreads() const
+{
+    return m_motionThreads && m_motionThreads->status() == ThreadPool::Status::READY;
 }
 
 //#define MAP_SENDOBJECTUPDATES_PROFILE

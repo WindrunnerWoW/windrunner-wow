@@ -679,6 +679,7 @@ class Map : public GridRefManager<NGridType>
 
         void AddUnitToMovementUpdate(Unit* unit);
         void RemoveUnitFromMovementUpdate(Unit* unit);
+        bool HasMotionThreads() const;
         // DynObjects currently
         uint32 GenerateLocalLowGuid(HighGuid guidhigh);
 
