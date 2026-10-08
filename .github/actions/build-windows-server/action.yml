@@ -166,7 +166,8 @@ runs:
     - name: Build
       shell: bash
       env:
-        _CL_: /MP${{ inputs.compiler-jobs }}
+        # -MP, not /MP: Git Bash rewrites /MP1 into a Git install path.
+        _CL_: -MP${{ inputs.compiler-jobs }}
       run: cmake --build build --config Release --parallel ${{ inputs.compiler-jobs }}
 
     - name: Record build sources
