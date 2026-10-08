@@ -376,7 +376,7 @@ void Unit::Update(uint32 update_diff, uint32 p_time)
     GetMotionMaster()->UpdateMotion(p_time);
     if (GetMotionMaster()->NeedsAsyncUpdate() && IsInWorld())
     {
-        if (sWorld.getConfig(CONFIG_UINT32_CONTINENTS_MOTIONUPDATE_THREADS) && GetMap()->IsContinent())
+        if (GetMap()->IsContinent() && GetMap()->HasMotionThreads())
             GetMap()->AddUnitToMovementUpdate(this);
         else
             GetMotionMaster()->UpdateMotionAsync(p_time);

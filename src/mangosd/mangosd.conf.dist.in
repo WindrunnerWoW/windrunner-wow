@@ -351,8 +351,9 @@ MapUpdate.Continents.MTCells.Threads = 1
 MapUpdate.Continents.MTCells.SafeDistance = 600
 
 # Continents.MotionUpdate.Threads. Parallelized execution of cells from same map.
+#   Ignored (forced to 0) while Eluna is enabled, because the Lua state is single-threaded.
 
-Continents.MotionUpdate.Threads = 1
+Continents.MotionUpdate.Threads = 0
 
 # AsyncTasks.Threads | AsyncQueriesTickTimeout. Number of threads for async tasks. (/who, list AH items ...)
 
