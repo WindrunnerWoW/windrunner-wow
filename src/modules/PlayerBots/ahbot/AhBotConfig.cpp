@@ -43,7 +43,9 @@ bool AhBotConfig::Initialize()
     if (!enabled)
         sLog.outString("AhBot is Disabled in ahbot.conf");
 
-    updateInterval = 900;
+    updateInterval = (uint32)std::max(10, config.GetIntDefault("AhBot.UpdateInterval", 900));
+    cacheRefreshSeconds = (uint32)std::max(0, config.GetIntDefault("AhBot.CacheRefreshSeconds", 60));
+    neutralSharePercent = (uint32)std::min(100, std::max(0, config.GetIntDefault("AhBot.NeutralSharePercent", 10)));
     historyDays = 30;
     itemBuyMinInterval = 600;
     itemBuyMaxInterval = 7200;
@@ -71,7 +73,6 @@ bool AhBotConfig::Initialize()
     buyerEnabled = config.GetBoolDefault("AhBot.Buyer.Enabled", true);
 
     itemsPerCycle = (uint32)std::max(0, config.GetIntDefault("AhBot.ItemsPerCycle", 100));
-
     // The maintained market-stat import is the source of truth. These are
     // deliberately fixed so pricing and scarcity never drift from the SQL
     // generator through per-server configuration.

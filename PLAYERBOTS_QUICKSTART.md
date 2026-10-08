@@ -44,16 +44,8 @@ examples below assume a local server with user `mangos`/password `mangos`:
 mysql -u mangos -p < sql/create_databases.sql        # creates tw_logon/tw_char/tw_world/tw_logs schemas
 for f in sql/base/*.sql; do mysql -u mangos -p tw_world < "$f"; done
 
-# Playerbot-specific tables (not part of the base dump above):
-for f in src/modules/PlayerBots/sql/world/ai_playerbot_indexes.sql \
-         src/modules/PlayerBots/sql/world/ai_playerbot_rpg_races.sql \
-         src/modules/PlayerBots/sql/world/ai_playerbot_texts.sql \
-         src/modules/PlayerBots/sql/world/classic/*.sql; do
-  mysql -u mangos -p tw_world < "$f"
-done
-for f in src/modules/PlayerBots/sql/characters/*.sql; do
-  mysql -u mangos -p tw_char < "$f"
-done
+# PlayerBots schema and seed SQL are imported automatically on startup
+# when BUILD_PLAYERBOTS=ON and Database.AutoUpdate.Enabled=1.
 ```
 
 `Database.AutoUpdate.Enabled = 1` in `mangosd.conf` (see below) applies anything

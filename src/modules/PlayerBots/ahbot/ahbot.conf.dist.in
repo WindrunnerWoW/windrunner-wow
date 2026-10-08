@@ -12,7 +12,10 @@ AuctionHouseBot.Buyer.Enabled = 1
 ###################################################################################################################
 # REQUIRED SETUP
 #
-# AhBot randomly selects existing player bots as auction sellers and buyers.
+# AhBot randomly selects player bots as auction sellers and buyers.
+# In companion mode it creates/reuses two dedicated auction accounts with
+# nine characters per faction. These characters are saved offline and never
+# added to the world population.
 # Keep it disabled until the market-stat SQL has been imported into the
 # characters database. AhBot reads ahbot_price_stats, ahbot_listing_stats,
 # ahbot_price, and the sample listing counts from that import on every cycle.
@@ -35,7 +38,17 @@ AhBot.Enabled = 1
 # second hand-maintained configuration profile.
 ###################################################################################################################
 
-AhBot.ItemsPerCycle = 100
+AhBot.ItemsPerCycle = 500
+
+# Seconds between auction checks. Minimum 10; default 900.
+AhBot.UpdateInterval = 20
+
+# Seconds between reloads of the market-stat cache from the database. Default 60.
+AhBot.CacheRefreshSeconds = 60
+
+# Neutral house (auction house 7) target as a percent of the nightly target.
+# Alliance and Horde each hold the full target. Default 10.
+AhBot.NeutralSharePercent = 10
 
 # Set either switch to 0 when a temporary seller-only or buyer-only run is
 # needed. Both are normally enabled.
