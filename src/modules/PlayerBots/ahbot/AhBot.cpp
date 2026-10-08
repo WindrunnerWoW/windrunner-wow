@@ -16,6 +16,7 @@
 #include "ObjectGuid.h"
 #include "ObjectMgr.h"
 #include "playerbot/PlayerbotAIConfig.h"
+#include "playerbot/RandomPlayerbotFactory.h"
 #include "AccountMgr.h"
 #include "playerbot/playerbot.h"
 #include "Mail/Mail.h"
@@ -68,6 +69,9 @@ void AhBot::Init()
     factions[5] = 2;
     factions[6] = 2;
     factions[7] = 3;
+
+    if (sPlayerbotAIConfig.windrunnerCompanionMode)
+        RandomPlayerbotFactory::CreateAuctionBots();
 
     availableItems.Init();
 
@@ -142,7 +146,7 @@ void AhBot::Update()
 
     if (updating)
     {
-        sLog.outString("[AhBot] Update skipped — previous check still running");
+        sLog.outDetail("[AhBot] Update skipped — previous check still running");
         return;
     }
 
@@ -200,7 +204,14 @@ void AhBot::ForceUpdate(bool simulate)
         sAhBotConfig.sellerEnabled ? "on" : "off",
         sAhBotConfig.buyerEnabled ? "on" : "off");
 
-    LoadCycleCache();
+    // The stats cache only changes on a market import or a reload, so refresh it
+    // at most once per AhBot.CacheRefreshSeconds rather than on every check.
+    time_t cacheNow = time(0);
+    if (!cycleCache.valid || cacheNow - cycleCacheLoadedAt >= (time_t)sAhBotConfig.cacheRefreshSeconds)
+    {
+        LoadCycleCache();
+        cycleCacheLoadedAt = cacheNow;
+    }
     {
         std::lock_guard<std::mutex> g(cacheMutex);
         if (cycleCache.priceStatRows == 0 || cycleCache.listingStatRows == 0 || cycleCache.sourceSnapshotRows == 0)
@@ -212,6 +223,7 @@ void AhBot::ForceUpdate(bool simulate)
             return;
         }
     }
+
     AssignSellerPersonas();
 	CheckCategoryMultipliers();
 
@@ -224,7 +236,15 @@ void AhBot::ForceUpdate(bool simulate)
             sharedCurrentCount += (uint32)sAuctionMgr.GetAuctionsMap(sharedAhEntry)->GetAuctionsSnapshot().size();
     }
     uint32 sharedTarget = ResolveHouseTarget(0, sharedCurrentCount);
-    int sharedRemaining = (int)ItemsToPostThisCycle(sharedCurrentCount, sharedTarget, sAhBotConfig.itemsPerCycle);
+
+    std::map<uint32, Category*> categoryOf;
+    for (uint32 c = 0; c < CategoryList::instance.size(); ++c)
+    {
+        Category* category = CategoryList::instance[c];
+        for (uint32 itemId : availableItems.Get(category))
+            categoryOf.emplace(itemId, category);
+    }
+
 	for (int i = 0; i < MAX_AUCTIONS; i++)
 	{
         if (sWorld.IsShutdowning() || sWorld.IsStopped())
@@ -251,44 +271,15 @@ void AhBot::ForceUpdate(bool simulate)
 
         if (sAhBotConfig.sellerEnabled)
         {
-            uint32 target = sharedTarget;
-            int remaining = sharedRemaining;
-
+            // Each house tops up to its own target (a percentage of the daily target), weighted
+            // by the scraped market. Each house has its own per-check budget.
+            uint32 houseTarget = (uint32)(sharedTarget * HouseTargetFraction(i));
+            int houseBudget = (int)ItemsToPostThisCycle(index.totalCount, houseTarget, sAhBotConfig.itemsPerCycle);
             if (sAhBotConfig.realismDebug)
-                sLog.outString("[AhBot] House %u: listings=%u target=%u remainingThisCycle=%d",
-                    auctionIds[i], index.totalCount, target, remaining);
+                sLog.outString("[AhBot] House %u: listings=%u target=%u budget=%d",
+                    auctionIds[i], index.totalCount, houseTarget, houseBudget);
 
-            if (HasWeightedProportions())
-            {
-                int weighted = 0;
-                for (int c = 0; c < CategoryList::instance.size(); ++c)
-                {
-                    if (sAhBotConfig.GetListProportion(CategoryList::instance[c]->GetDisplayName()) > 0)
-                        ++weighted;
-                }
-                if (weighted > 0 && weighted * 4 < CategoryList::instance.size())
-                    sLog.outError("[AhBot] ListProportion covers %d/%d categories; unlisted buckets are skipped. Configure a full set or leave all at 0.",
-                        weighted, CategoryList::instance.size());
-                int attempts = 0;
-                int maxAttempts = remaining >= 0x00ffffff ? 500 : std::max(remaining * 20, 50);
-                while (remaining > 0 && attempts < maxAttempts)
-                {
-                    ++attempts;
-                    Category* category = PickWeightedCategory();
-                    if (!category)
-                        break;
-                    ahAdded += AddAuctions(i, category, &inAuctionItems, index, remaining);
-                }
-            }
-            else
-            {
-                for (int j = 0; j < CategoryList::instance.size() && remaining > 0; j++)
-                {
-                    Category* category = CategoryList::instance[j];
-                    ahAdded += AddAuctions(i, category, &inAuctionItems, index, remaining);
-                }
-            }
-            sharedRemaining = remaining;
+            ahAdded += TopUpHouse(i, houseTarget, houseBudget, index, categoryOf);
         }
 
 		sLog.outString("[AhBot] Auction house id=%u: answered=%d added=%d", auctionIds[i], ahAnswered, ahAdded);
@@ -296,11 +287,14 @@ void AhBot::ForceUpdate(bool simulate)
 		added += ahAdded;
 	}
 
+    FlushMarketPrices();
     if (!dryRun)
         CleanupHistory();
 
 	sLog.outString("[AhBot] === Check complete: %d answered, %d added. Next check in %d seconds ===",
 		answered, added, sAhBotConfig.updateInterval);
+    // Count the interval from the end of this check, so a slow check never overlaps the next one.
+    nextAICheckTime = time(0) + sAhBotConfig.updateInterval;
     dryRun = false;
     updating = false;
 }
@@ -816,6 +810,75 @@ uint32 AhBot::GetSellTime(uint32 itemId, uint32 auctionHouse, Category*& categor
     return result ? result : itemTime;
 }
 
+// Share of the daily target held by a house (index into auctionIds). Index 2 is
+// house 7, the Neutral house; Alliance and Horde each hold the full target.
+double AhBot::HouseTargetFraction(int house)
+{
+    if (house == 2)
+        return sAhBotConfig.neutralSharePercent / 100.0;
+    return 1.0;
+}
+
+// Tops one house up toward its share of the daily target. Each item's share follows
+// its scraped listing volume, so the spread matches the imported market. Items are
+// visited in random order so a limited per-check budget doesn't always favour the
+// same item IDs. Sell cooldowns and per-category draws are not used.
+int AhBot::TopUpHouse(int auction, uint32 houseTarget, int& remainingCycle, HouseSnapshotIndex& index,
+    const std::map<uint32, Category*>& categoryOf)
+{
+    std::vector<std::pair<uint32, double>> weights;
+    double total = 0.0;
+    {
+        std::lock_guard<std::mutex> g(cacheMutex);
+        weights = cycleCache.seedWeights;
+        total = cycleCache.seedWeightTotal;
+    }
+    if (weights.empty() || total <= 0.0 || houseTarget == 0)
+        return 0;
+
+    for (size_t k = weights.size(); k > 1; --k)
+        std::swap(weights[k - 1], weights[urand(0, (uint32)(k - 1))]);
+
+    int added = 0;
+    for (size_t n = 0; n < weights.size() && remainingCycle > 0; ++n)
+    {
+        if (sWorld.IsShutdowning() || sWorld.IsStopped())
+            break;
+
+        uint32 itemId = weights[n].first;
+        std::map<uint32, Category*>::const_iterator catIt = categoryOf.find(itemId);
+        if (catIt == categoryOf.end())
+            continue;
+        ItemPrototype const* proto = sObjectMgr.GetItemPrototype(itemId);
+        if (!proto)
+            continue;
+
+        // Expected listings for this item, rounded probabilistically so rare items still appear.
+        double expected = weights[n].second / total * houseTarget;
+        uint32 quota = (uint32)expected;
+        if ((double)urand(0, 999999) / 1000000.0 < expected - quota)
+            ++quota;
+
+        uint32 have = 0;
+        std::map<uint32, uint32>::const_iterator activeIt = index.botActiveCount.find(itemId);
+        if (activeIt != index.botActiveCount.end())
+            have = activeIt->second;
+
+        for (uint32 m = have; m < quota && remainingCycle > 0; ++m)
+        {
+            int posted = AddAuction(auction, catIt->second, proto, index);
+            if (posted <= 0)
+                break;
+            added += posted;
+            remainingCycle -= posted;
+            index.botActiveCount[itemId] += (uint32)posted;
+            index.totalCount += (uint32)posted;
+        }
+    }
+
+    return added;
+}
+
 int AhBot::AddAuctions(int auction, Category* category, ItemBag* inAuctionItems, HouseSnapshotIndex& index, int& remainingCycle)
 {
     if (remainingCycle <= 0)
@@ -1115,8 +1178,7 @@ void AhBot::HandleCommand(std::string command, ChatHandler* handler)
     {
         CommandReply(handler, "ahbot status - seller/buyer flags, house targets, cache");
         CommandReply(handler, "ahbot reload - re-read ahbot.conf");
-        CommandReply(handler, "ahbot update - run one check cycle");
-        CommandReply(handler, "ahbot simulate|dryrun - cycle without mutations");
+        CommandReply(handler, "ahbot update - run one check cycle");        CommandReply(handler, "ahbot simulate|dryrun - cycle without mutations");
         CommandReply(handler, "ahbot stats - per-house listing counts");
         CommandReply(handler, "ahbot expire - expire bot auctions");
         CommandReply(handler, "ahbot dump - log sell/buy prices");
@@ -1458,8 +1520,40 @@ void AhBot::updateMarketPrice(uint32 itemId, double price, uint32 auctionHouse)
     if (dryRun)
         return;
 
-    CharacterDatabase.PExecute("DELETE FROM ahbot_price WHERE item = '%u' AND auction_house = '%u'", itemId, auctionHouse);
-    CharacterDatabase.PExecute("INSERT INTO ahbot_price (item, price, auction_house) VALUES ('%u', '%lf', '%u')", itemId, marketPrice, auctionHouse);
+    // Written once per check by FlushMarketPrices(), not once per listing.
+    std::lock_guard<std::mutex> g(cacheMutex);
+    pendingMarketPrices[std::make_pair(itemId, auctionHouse)] = marketPrice;
+}
+
+void AhBot::FlushMarketPrices()
+{
+    std::vector<std::pair<std::pair<uint32, uint32>, double>> rows;
+    {
+        std::lock_guard<std::mutex> g(cacheMutex);
+        rows.assign(pendingMarketPrices.begin(), pendingMarketPrices.end());
+        pendingMarketPrices.clear();
+    }
+    if (rows.empty())
+        return;
+
+    const size_t kChunk = 200;
+    for (size_t start = 0; start < rows.size(); start += kChunk)
+    {
+        size_t end = std::min(rows.size(), start + kChunk);
+        std::string keys, values;
+        char buf[96];
+        for (size_t k = start; k < end; ++k)
+        {
+            uint32 item = rows[k].first.first;
+            uint32 house = rows[k].first.second;
+            snprintf(buf, sizeof(buf), "%s(%u,%u)", keys.empty() ? "" : ",", item, house);
+            keys += buf;
+            snprintf(buf, sizeof(buf), "%s(%u,'%lf',%u)", values.empty() ? "" : ",", item, rows[k].second, house);
+            values += buf;
+        }
+        CharacterDatabase.Execute(("DELETE FROM ahbot_price WHERE (item, auction_house) IN (" + keys + ")").c_str());
+        CharacterDatabase.Execute(("INSERT INTO ahbot_price (item, price, auction_house) VALUES " + values).c_str());
+    }
 }
 
 bool AhBot::IsBotAuction(uint32 bidder) const
@@ -2161,6 +2255,20 @@ void AhBot::LoadCycleCache()
                 next.listingCounts[key] = fields[5].GetUInt32();
             } while (results->NextRow());
             next.listingStatRows = next.listingSeen.size();
+
+            // Shared (house 0, unsuffixed) listing volume per snapshot: the item mix the top-up follows.
+            for (const auto& entry : next.listingCounts)
+            {
+                const ItemStatKey& key = entry.first;
+                if (key.suffixId != 0 || key.auctionHouse != 0 || entry.second == 0)
+                    continue;
+                std::map<ItemStatKey, uint32>::const_iterator snapIt = next.listingSnapshots.find(key);
+                if (snapIt == next.listingSnapshots.end() || snapIt->second == 0)
+                    continue;
+                double weight = (double)entry.second / (double)snapIt->second;
+                next.seedWeights.emplace_back(key.itemId, weight);
+                next.seedWeightTotal += weight;
+            }
         }
     }
 

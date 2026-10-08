@@ -31,7 +31,13 @@ runs:
   steps:
     - name: Checkout submodules
       shell: bash
-      run: git submodule update --init --recursive
+      run: |
+        set -euo pipefail
+        git submodule sync --recursive
+        git submodule update --init --recursive
+        # Build this module from its latest main commit instead of its pinned
+        # gitlink so each build and release picks up upstream changes.
+        git submodule update --init --remote --recursive modules/mod-20playerraids
 
     - name: Archive names and BUILD_INFO
       shell: bash
@@ -46,7 +52,7 @@ runs:
           echo "commit=$GITHUB_SHA"
           echo "short=$sha"
           echo "ref=$GITHUB_REF"
-          for module in mod-crafting-storage mod-crafting-orders; do
+          for module in mod-crafting-storage mod-crafting-orders mod-20playerraids; do
             commit=not-included
             if [ -d "modules/$module/src" ]; then
               commit=$(git -C "modules/$module" rev-parse HEAD)

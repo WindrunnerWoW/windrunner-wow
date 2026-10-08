@@ -266,7 +266,12 @@ uint8 RandomPlayerbotFactory::GetRandomRace(uint8 cls, Team team)
 
 bool RandomPlayerbotFactory::CreateRandomBot(uint8 cls, uint8 inputRace)
 {
-    if (sPlayerbotAIConfig.windrunnerCompanionMode)
+    return CreateBot(cls, inputRace, false);
+}
+
+bool RandomPlayerbotFactory::CreateBot(uint8 cls, uint8 inputRace, bool auctionOnly)
+{
+    if (sPlayerbotAIConfig.windrunnerCompanionMode && !auctionOnly)
         return false;
 
     std::lock_guard<std::mutex> lock(nameMutex);
@@ -284,12 +289,14 @@ bool RandomPlayerbotFactory::CreateRandomBot(uint8 cls, uint8 inputRace)
     auto it = freeNames.find(raceAndGender);
     if (it == freeNames.end() || it->second.empty())
     {
-        // Try fallback: generate new name with suffix if all names exhausted
-        // First try other gender
-        std::string baseName = CreateRandomBotName(raceAndGender);
-        if (baseName.empty())
+        // The name mutex is already held. Try the other gender's names
+        // directly rather than recursively locking CreateRandomBotName.
+        auto other = freeNames.find(CombineRaceAndGender(1 - gender, race));
+        if (other == freeNames.end() || other->second.empty())
             return false;
-        name = baseName;
+        name = other->second.back();
+        other->second.pop_back();
+        gender = 1 - gender;
     }
     else
     {
@@ -415,14 +422,16 @@ bool RandomPlayerbotFactory::CreateRandomBot(uint8 cls, uint8 inputRace)
     if (sPlayerbotAIConfig.disableRandomLevels && sPlayerbotAIConfig.randombotStartingLevel > 1)
         player->GiveLevel(sPlayerbotAIConfig.randombotStartingLevel);
 
-    sObjectAccessor.AddObject(player);
+    if (!auctionOnly)
+        sObjectAccessor.AddObject(player);
 
     if (race == RACE_GOBLIN)
     {
         player->SetLocationMapId(1);
         player->Relocate(-618.518f, -4251.67f, 38.718f, 0.0f);
         player->SetHomebindToLocation(WorldLocation(1, -618.518f, -4251.67f, 38.718f, 0.0f), 14);
-        player->SaveToDB();
+        if (!auctionOnly)
+            player->SaveToDB();
     }
 
     if (race == RACE_HIGH_ELF)
@@ -430,13 +439,86 @@ bool RandomPlayerbotFactory::CreateRandomBot(uint8 cls, uint8 inputRace)
         player->SetLocationMapId(0);
         player->Relocate(-8949.95f, -132.493f, 83.5312f, 0.0f);
         player->SetHomebindToLocation(WorldLocation(0, -8949.95f, -132.493f, 83.5312f, 0.0f), 12);
-        player->SaveToDB();
+        if (!auctionOnly)
+            player->SaveToDB();
     }
 
     sLog.outDebug( "Random bot created for account %d - name: \"%s\"; race: %u; class: %u",
             accountId, name.c_str(), race, cls);
 
+    if (auctionOnly)
+    {
+        // Auction ownership needs a database row and the player cache only.
+        // Never register this temporary Player or its session as online.
+        bool saved = player->SaveToDB(false, true, true);
+        if (saved)
+            sObjectMgr.UpdatePlayerCache(player);
+        delete player;
+        delete session;
+        return saved;
+    }
+
     return true;
+}
+
+void RandomPlayerbotFactory::CreateAuctionBots()
+{
+    InitializeCreationData();
+
+    // Keep this small and independent of the configured world population.
+    // The same accounts and characters are reused on every startup.
+    constexpr uint32 charactersPerFaction = 9;
+    const uint8 races[] = {RACE_HUMAN, RACE_ORC};
+    for (uint32 faction = 0; faction < 2; ++faction)
+    {
+        std::string accountName = sPlayerbotAIConfig.randomBotAccountPrefix + "AH" + std::to_string(faction);
+        uint32 accountId = sAccountMgr.GetId(accountName);
+        if (!accountId)
+        {
+            std::string password;
+            for (uint32 n = 0; n < 16; ++n)
+                password += (char)urand('!', 'z');
+            if (!LoginDatabase.BeginTransaction())
+            {
+                sLog.outError("[AhBot] Unable to start auction account creation for %s", accountName.c_str());
+                continue;
+            }
+            AccountOpResult result = sAccountMgr.CreateAccount(accountName, password);
+            bool committed = LoginDatabase.CommitTransactionDirect();
+            if (result != AOR_OK || !committed)
+            {
+                sLog.outError("[AhBot] Unable to create offline auction account %s", accountName.c_str());
+                continue;
+            }
+            // The direct commit makes the account visible before its
+            // characters are saved and the first auction cycle starts.
+            accountId = sAccountMgr.GetId(accountName);
+            if (!accountId)
+            {
+                sLog.outError("[AhBot] Unable to resolve offline auction account %s", accountName.c_str());
+                continue;
+            }
+        }
+
+        if (std::find(sPlayerbotAIConfig.randomBotAccounts.begin(), sPlayerbotAIConfig.randomBotAccounts.end(), accountId) ==
+            sPlayerbotAIConfig.randomBotAccounts.end())
+            sPlayerbotAIConfig.randomBotAccounts.push_back(accountId);
+
+        uint32 count = sAccountMgr.GetCharactersCount(accountId);
+        RandomPlayerbotFactory factory(accountId);
+        while (count < charactersPerFaction)
+        {
+            if (!factory.CreateBot(CLASS_WARRIOR, races[faction], true))
+            {
+                sLog.outError("[AhBot] Unable to create offline auction character on %s", accountName.c_str());
+                break;
+            }
+            ++count;
+        }
+        LoginDatabase.PExecute("REPLACE INTO realmcharacters (numchars, acctid, realmid) VALUES (%u, %u, %u)",
+            count, accountId, realmID);
+        sLog.outString("[AhBot] Offline auction account %s: %u characters (no world login)", accountName.c_str(), count);
+    }
 }
 
 std::string RandomPlayerbotFactory::CreateRandomBotName(NameRaceAndGender raceAndGender)

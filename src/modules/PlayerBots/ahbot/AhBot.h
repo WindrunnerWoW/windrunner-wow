@@ -61,6 +61,8 @@ namespace ahbot
         std::map<ItemStatKey, uint32> listingSeen;
         std::map<ItemStatKey, uint32> listingSnapshots;
         std::map<ItemStatKey, uint32> listingCounts;
+        std::vector<std::pair<uint32, double>> seedWeights; // shared item -> scraped listings per snapshot
+        double seedWeightTotal = 0.0;
         std::map<uint32, uint64> historyBidSum; // key: faction * 10 + won
         std::map<uint32, uint32> lastSelfBuyTime; // faction
         std::map<uint32, int64> availableMoney;
@@ -129,6 +131,7 @@ namespace ahbot
         uint32 GetAvailableMoney(uint32 auctionHouse);
         void CheckCategoryMultipliers();
         void updateMarketPrice(uint32 itemId, double price, uint32 auctionHouse);
+        void FlushMarketPrices();
         bool IsBotAuction(uint32 bidder) const;
         uint32 GetRandomBidder(uint32 auctionHouse);
         void LoadRandomBots();
@@ -223,7 +226,7 @@ namespace ahbot
 
     private:
         AvailableItemsBag availableItems;
-        time_t nextAICheckTime;
+        std::atomic<time_t> nextAICheckTime;
         std::map<std::string, double> categoryMultipliers;
         std::map<std::string, uint32> categoryMaxAuctionCount;
         std::map<std::string, uint32> categoryMaxItemAuctionCount;
@@ -237,10 +240,15 @@ namespace ahbot
         std::vector<PendingListing> queuedListings;
         std::mutex cacheMutex;
         CycleCache cycleCache;
+        time_t cycleCacheLoadedAt = 0;
+        std::map<std::pair<uint32, uint32>, double> pendingMarketPrices; // (item, house) -> price, guarded by cacheMutex
         std::map<uint32, SellerPersona> sellerPersonas;
         std::map<uint32, uint32> houseTargets;
         bool dryRun;
         std::atomic<bool> pendingSimulate;
+        double HouseTargetFraction(int house);
+        int TopUpHouse(int auction, uint32 houseTarget, int& remainingCycle, HouseSnapshotIndex& index,
+            const std::map<uint32, Category*>& categoryOf);
         std::mutex workerMutex;
         std::thread workerThread;
     };

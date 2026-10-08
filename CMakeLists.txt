@@ -68,6 +68,14 @@ option(ALLOW_TURTLE_ADDONS "Allow Turtle addons" ON)
 # When ON, mangosd links the bot subsystem; runtime activation is gated by
 # AiPlayerbot.Enabled in aiplayerbot.conf.
 option(BUILD_PLAYERBOTS "Build the cmangos/playerbots subsystem" OFF)
+option(BUILD_DATABASE_TESTS "Build SQL bootstrap preservation tests" OFF)
+if(BUILD_DATABASE_TESTS)
+    enable_testing()
+    add_executable(sql_bootstrap_policy_test src/shared/Database/t/sql_bootstrap_policy_test.cpp)
+    target_include_directories(sql_bootstrap_policy_test PRIVATE src/shared)
+    target_compile_features(sql_bootstrap_policy_test PRIVATE cxx_std_17)
+    add_test(NAME sql_bootstrap_policy COMMAND sql_bootstrap_policy_test)
+endif()
 # Share quest-only loot with eligible group members.
 option(BUILD_GROUP_QUEST_LOOT "Build the GroupQuestLoot core extension module" OFF)
 
@@ -729,6 +737,16 @@ if (BUILD_PLAYERBOTS)
     message(STATUS "BUILD_PLAYERBOTS=ON - adding cmangos/playerbots vendored module at src/modules/PlayerBots/")
     set(PCH ${USE_PCH})
     add_subdirectory(src/modules/PlayerBots)
+    target_compile_definitions(shared PRIVATE
+        TW_PLAYERBOTS_SQL_SOURCE_DIR="${CMAKE_SOURCE_DIR}/src/modules/PlayerBots/sql"
+        TW_PLAYERBOTS_SQL_INSTALL_DIR="${CMAKE_INSTALL_PREFIX}/sql/playerbots")
+    install(DIRECTORY src/modules/PlayerBots/sql/
+        DESTINATION sql/playerbots
+        COMPONENT PlayerbotsSql
+        FILES_MATCHING PATTERN "*.sql"
+        PATTERN "other" EXCLUDE
+        PATTERN "tbc" EXCLUDE
+        PATTERN "wotlk" EXCLUDE)
     # Vendor-tree feature gates the playerbots source expects:
     #   CMANGOS         - selects the cmangos codepath in vendored headers
     #                     (vs. TrinityCore / MaNGOS-Zero alternates).

@@ -65,6 +65,8 @@ class RandomPlayerbotFactory
 	public:
         bool CreateRandomBot(uint8 cls, uint8 inputRace = 0);
         static void CreateRandomBots();
+        // Create/reuse auction characters without logging them into the world.
+        static void CreateAuctionBots();
         static void InitializeCreationData();
         static void CreateRandomGuilds();
         static void CreateRandomArenaTeams();
@@ -77,6 +79,7 @@ class RandomPlayerbotFactory
         static std::string CreateRandomBotName(NameRaceAndGender raceAndGender);
         static void EnsureNamesInitialized();
     private:
+        bool CreateBot(uint8 cls, uint8 inputRace, bool auctionOnly);
         static std::string CreateRandomArenaTeamName();
         static std::unordered_map<NameRaceAndGender, std::vector<std::string>> freeNames;
         static std::unordered_map<NameRaceAndGender, std::vector<std::string>> allNames;
