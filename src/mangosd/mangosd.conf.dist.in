@@ -689,6 +689,8 @@ LoadLocales = 1
 
 # LoadSpellsFromSql
 #    Load spell data from the world database `spell_template` table instead of Spell.dbc. Mostly here for future developers iterating on this project
+#    Both modes read script assignments, bonus coefficients, custom flags and minimum target levels from `spell_template`.
+#    In DBC mode, `spell_extra` can override the coefficients, flags and minimum target levels.
 #    Default: 0 - False
 
 LoadSpellsFromSql = 0
