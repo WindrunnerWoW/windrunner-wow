@@ -34,7 +34,7 @@ CREATE TABLE `autobroadcast` (
 
 LOCK TABLES `autobroadcast` WRITE;
 /*!40000 ALTER TABLE `autobroadcast` DISABLE KEYS */;
-INSERT INTO `autobroadcast` VALUES (50009);
+-- Disclaimer string 50009 was removed from autobroadcasts.
 /*!40000 ALTER TABLE `autobroadcast` ENABLE KEYS */;
 UNLOCK TABLES;
 /*!40103 SET TIME_ZONE=@OLD_TIME_ZONE */;
