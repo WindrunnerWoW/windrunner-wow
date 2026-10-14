@@ -778,7 +778,7 @@ InstantLogout = 1
 
 # AutoHonorRestart. Server will schedule a restart on its own when it's time to perform PvP rank calculations.
 
-AutoHonorRestart = 1
+AutoHonorRestart = 0
 
 # AllFlightPaths. Players will start with all flight paths.
 
