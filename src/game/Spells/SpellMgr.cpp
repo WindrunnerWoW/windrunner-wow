@@ -3467,7 +3467,47 @@ void SpellMgr::LoadSpells()
         mSpellEntryMap[spellId] = std::move(spell);
     }
 
+    LoadSpellServerMetadata();
     LoadSpellExtra();
+}
+
+void SpellMgr::LoadSpellServerMetadata()
+{
+    // DBC provides spell definitions; these server-only fields come from SQL.
+    // LoadSpellExtra runs afterwards so existing DBC-mode overrides take precedence.
+    std::unique_ptr<QueryResult> result(WorldDatabase.Query(
+        "SELECT `entry`, `effectBonusCoefficient1`, `effectBonusCoefficient2`, "
+        "`effectBonusCoefficient3`, `minTargetLevel`, `customFlags`, `script_name` FROM `spell_template`"));
+
+    if (!result)
+    {
+        sLog.outString("Loaded 0 spell server metadata records.");
+        return;
+    }
+
+    uint32 count = 0;
+    uint32 skipped = 0;
+    do
+    {
+        Field* fields = result->Fetch();
+        uint32 const spellId = fields[0].GetUInt32();
+        SpellEntry* spell = spellId < mSpellEntryMap.size() ? mSpellEntryMap[spellId].get() : nullptr;
+        if (!spell)
+        {
+            ++skipped;
+            continue;
+        }
+
+        spell->EffectBonusCoefficient[0] = fields[1].GetFloat();
+        spell->EffectBonusCoefficient[1] = fields[2].GetFloat();
+        spell->EffectBonusCoefficient[2] = fields[3].GetFloat();
+        spell->MinTargetLevel = fields[4].GetUInt32();
+        spell->Custom = fields[5].GetUInt32();
+        spell->ScriptId = sScriptMgr.GetScriptId(fields[6].GetString());
+        ++count;
+    } while (result->NextRow());
+
+    sLog.outString("Loaded %u spell server metadata records (%u entries absent from DBC skipped).", count, skipped);
 }
 
 void SpellMgr::LoadSpellExtra()
