@@ -47,6 +47,7 @@
 #include "AccountMgr.h"
 #include "Config/Config.h"
 #include "CustomMerchantMgr.h"
+#include "WindrunnerCalendarAddon.h"
 #include "Database/DatabaseImpl.h"
 #include "HonorMgr.h"
 #include "Shop/ShopMgr.h"
@@ -1087,6 +1088,9 @@ bool WorldSession::HandleTurtleAddonMessages(uint32 lang, uint32 type, std::stri
     {
         return false;
     }
+
+    if (HandleWindrunnerCalendarAddonMessage(this, _player, type, msg))
+        return true;
 
     if (sLFTMgr.HandleAddonMessage(_player, type, msg))
         return true;
