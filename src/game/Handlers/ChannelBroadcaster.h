@@ -4,6 +4,9 @@
 #include "ObjectGuid.h"
 #include "Utilities/readerwriterqueue.h"
 #include <atomic>
+#include <condition_variable>
+#include <mutex>
+#include <thread>
 
 
 struct ChannelMessage
@@ -35,6 +38,7 @@ protected:
 	void Stop();
 
 	void ThreadProc();
+	bool IsStopping() const;
 
 	moodycamel::ReaderWriterQueue<ChannelMessage> MessageQueue;
 
@@ -44,4 +48,9 @@ protected:
 
 	std::atomic_bool bShouldSentMessages = false;
 	std::atomic_bool bIsWorking = false;
+	std::atomic_bool bStopRequested = false;
+
+	// Wakes the worker on enqueue, on enable/disable and on Stop().
+	std::mutex WakeMutex;
+	std::condition_variable WakeCondition;
 };

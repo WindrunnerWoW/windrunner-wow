@@ -1299,7 +1299,7 @@ bool WorldSession::CharacterScreenIdleKick(uint32 currTime)
     if (!maxIdle) // disabled
         return false;
 
-    if ((currTime - m_idleTime) >= (maxIdle * 1000))
+    if (WorldTimer::getMSTimeDiff(m_idleTime, currTime) >= (maxIdle * 1000))
     {
         DEBUG_LOG("SESSION: Kicking session [%s] from character selection", GetRemoteAddress().c_str());
         return true;

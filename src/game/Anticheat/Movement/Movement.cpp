@@ -598,6 +598,7 @@ bool Movement::HandleAnticheatTests(MovementInfo& movementInfo, WorldSession* se
         // Client should send heartbeats every 500ms at the most (it can send them sooner
         // if movement flags change, i.e. entering or exiting a transport)
         if (sAnticheatConfig.IsEnabled(CHEAT_TYPE_SKIPPED_HEARTBEATS) &&
+            opcode != CMSG_MOVE_KNOCK_BACK_ACK &&
             dt > 1000 &&
             GetLastMovementInfo().ctime &&
             GetLastMovementInfo().moveFlags & MOVEFLAG_MASK_MOVING)

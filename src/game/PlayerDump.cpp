@@ -1005,9 +1005,20 @@ DumpReturn PlayerDumpReader::LoadDump(std::string const& file, uint32 account, s
             ROLLBACK(DUMP_FILE_BROKEN);
     }
 
-    CharacterDatabase.CommitTransaction();
+    // Commit synchronously: the player cache is loaded from the characters
+    // table below, so the rows must be visible before we query them.
+    // LoadDump runs on the world thread (CLI/GM command), which owns the cache.
+    if (!CharacterDatabase.CommitTransactionDirect())
+    {
+        fclose(fin);
+        return DUMP_FILE_BROKEN;
+    }
 
     fclose(fin);
+
+    // Without this the new character is missing from the in-memory player cache
+    // and HandlePlayerLoginOpcode refuses it until the next server restart.
+    sObjectMgr.LoadPlayerCacheData(guid);
 
     return DUMP_SUCCESS;
 }
