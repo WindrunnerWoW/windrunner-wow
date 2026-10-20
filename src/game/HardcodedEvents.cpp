@@ -1,4 +1,5 @@
 #include "HardcodedEvents.h"
+#include "WindrunnerCalendarSchedule.h"
 #include "World.h"
 #include "MapManager.h"
 #include "events/event_naxxramas.h"
@@ -449,15 +450,7 @@ DarkmoonState DarkmoonFaire::GetDarkmoonState()
 
     struct tm* timeinfo;
     timeinfo = localtime(&rawtime);
-    int weekOfTheYear = (((timeinfo->tm_yday - timeinfo->tm_wday + 7) / 7)) + 1;
-
-    // Even week of the year = Horde, otherwise Alliance
-    bool isHorde = weekOfTheYear % 2 == 0;
-
-    if (timeinfo->tm_wday == 3) // Wednesday is installation time! :P
-        return isHorde ? DARKMOON_H2_INSTALLATION : DARKMOON_A2_INSTALLATION;
-    else
-        return isHorde ? DARKMOON_H2 : DARKMOON_A2;
+    return static_cast<DarkmoonState>(WindrunnerCalendar::DarkmoonEventForDate(*timeinfo));
 }
 
 /*
