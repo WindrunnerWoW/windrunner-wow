@@ -571,6 +571,8 @@ class AllCreatureScript : public ScriptObject
         virtual void OnCreatureAddWorld(Creature* /*creature*/) {}
         virtual void OnCreatureRemoveWorld(Creature* /*creature*/) {}
         virtual bool CanCreatureGossipHello(Player* /*player*/, Creature* /*creature*/) { return false; }
+        // Additional per-viewer eligibility; native phase/death/GM checks remain in the core.
+        virtual bool CanSeeCreature(Player const* /*player*/, Creature const* /*creature*/) const { return true; }
         virtual CreatureAI* GetCreatureAI(Creature* /*creature*/) const { return nullptr; }
 };
 
