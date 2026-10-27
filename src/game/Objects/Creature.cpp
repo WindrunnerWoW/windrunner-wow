@@ -2265,7 +2265,13 @@ bool Creature::IsVisibleInGridForPlayer(Player const* pl) const
     if (HasExtraFlag(CREATURE_FLAG_EXTRA_INVISIBLE))
         return false;
 
-    // Visilibity based on the quest status:
+    if (ScriptRegistry<AllCreatureScript>::ForEachWithReturn([&](AllCreatureScript* script)
+    {
+        return !script->CanSeeCreature(pl, this);
+    }))
+        return false;
+
+    // Visibility based on the quest status:
     uint32 phaseQuestId = GetPhaseQuestId();
     if (phaseQuestId)
     {
