@@ -1,6 +1,7 @@
 #include "WeeklyResetSchedule.h"
 
 #include "Log.h"
+#include "WeeklyQuestRotation.h"
 #include "ScriptObjects.h"
 #include "World.h"
 
@@ -36,12 +37,17 @@ namespace
         {
             m_started = true;
             Observe();
+            WeeklyQuestRotation::Update();
         }
 
         void OnUpdate(uint32 diff) override
         {
             if (!m_started)
                 return;
+
+            // World::Update runs the script updates after MapManager::Update has joined its workers, which the quest
+            // relations swap needs. Every tick, so a GM reload of creature_questrelation is put back at once.
+            WeeklyQuestRotation::Update();
 
             if (m_checkTimer > diff)
             {

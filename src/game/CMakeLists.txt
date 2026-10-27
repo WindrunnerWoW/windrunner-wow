@@ -53,6 +53,7 @@ set (game_SRCS
     WeeklyResetRuntime.cpp
     Weather.cpp
     WeeklyQuestLedger.cpp
+    WeeklyQuestRotation.cpp
     World.cpp
     WorldSession.cpp
     AI/AbilityTimer.cpp
