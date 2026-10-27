@@ -14729,6 +14729,10 @@ Quest const* Player::GetNextQuest(ObjectGuid guid, Quest const *pQuest)
 */
 bool Player::CanSeeStartQuest(Quest const *pQuest) const
 {
+    // A weekly already done this period is not offered (CanTakeQuest), so it gets no mark either.
+    if (pQuest->IsWeekly() && !IsWeeklyQuestEligible(pQuest))
+        return false;
+
     if (SatisfyQuestClass(pQuest, false) && SatisfyQuestRace(pQuest, false) && SatisfyQuestSkill(pQuest, false) &&
         SatisfyQuestCondition(pQuest, false) && SatisfyQuestExclusiveGroup(pQuest, false) && SatisfyQuestReputation(pQuest, false) &&
         SatisfyQuestPreviousQuest(pQuest, false) && SatisfyQuestNextChain(pQuest, false) &&
