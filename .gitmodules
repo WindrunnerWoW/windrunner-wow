@@ -23,3 +23,8 @@
 	path = modules/mod-20playerraids
 	url = https://github.com/WindrunnerWoW/windrunner-20playerraids.git
 	branch = main
+
+[submodule "modules/mod-hearthstone"]
+	path = modules/mod-hearthstone
+	url = https://github.com/WrkX/windrunner-hearthstone.git
+	branch = main
