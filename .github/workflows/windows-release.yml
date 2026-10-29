@@ -1,6 +1,6 @@
 name: Windows Release
 
-run-name: Release ${{ inputs.version }} from ${{ github.ref_name }}
+run-name: ${{ inputs.prerelease && 'Pre-release' || 'Release' }} ${{ inputs.version }} from ${{ github.ref_name }}
 
 on:
   workflow_dispatch:
@@ -9,6 +9,13 @@ on:
         description: Release version, used as tag and title (e.g. 1.18.2). An existing release with this version is replaced.
         required: true
         type: string
+      prerelease:
+        description: >-
+          Pre-release (PTR) build. The version must look like 1.19.0-ptr.1. The launcher only
+          offers it to players who turned on its pre-release server option.
+        required: false
+        type: boolean
+        default: false
 
 concurrency:
   group: windows-release-${{ github.ref_name }}
@@ -30,9 +37,19 @@ jobs:
       - name: Validate version, branch and commit
         env:
           RELEASE_VERSION: ${{ inputs.version }}
+          PRERELEASE: ${{ inputs.prerelease }}
         run: |
           if ! [[ "$RELEASE_VERSION" =~ ^[A-Za-z0-9][A-Za-z0-9._-]*$ ]]; then
             echo "::error::Invalid version '$RELEASE_VERSION': use only A-Z a-z 0-9 . _ -"; exit 1
+          fi
+          # The launcher treats a plain numeric suffix (1.18.3-1) as a hotfix for everyone, so
+          # PTR builds need the -ptr.N form, and only PTR builds may use it.
+          if [ "$PRERELEASE" = true ]; then
+            if ! [[ "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-ptr\.[0-9]+$ ]]; then
+              echo "::error::Pre-release version '$RELEASE_VERSION' must look like 1.19.0-ptr.1"; exit 1
+            fi
+          elif [[ "$RELEASE_VERSION" == *-ptr* ]]; then
+            echo "::error::'$RELEASE_VERSION' is a PTR version; tick 'prerelease' to publish it"; exit 1
           fi
           if [ "$GITHUB_REF_TYPE" != branch ]; then echo '::error::Select a branch for the release'; exit 1; fi
           if [ "$(git rev-parse HEAD)" != "$GITHUB_SHA" ]; then
@@ -48,6 +65,7 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG: ${{ inputs.version }}
+          PRERELEASE: ${{ inputs.prerelease }}
         run: |
           set -euo pipefail
           repo="$GITHUB_REPOSITORY"
@@ -63,5 +81,11 @@ jobs:
             gh api -X DELETE "repos/$repo/git/refs/tags/$TAG" --silent
           fi
 
+          # A pre-release must never become the repository's "latest" release.
+          channel_args=()
+          if [ "$PRERELEASE" = true ]; then
+            channel_args=(--prerelease --latest=false)
+          fi
+
           gh release create "$TAG" "$ZIP_PATH" "$SQL_ZIP_PATH" --repo "$repo" \
-            --target "$GITHUB_SHA" --title "$TAG" --generate-notes
+            --target "$GITHUB_SHA" --title "$TAG" --generate-notes "${channel_args[@]}"
