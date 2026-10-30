@@ -227,7 +227,7 @@ target_include_directories(${LIBRARY_NAME}
   # Eluna reaches into core headers (Object.h includes LuaValue.h), and this
   # module pulls those in through its precompiled header. The game target has
   # the path; this one is separate and needs it too.
-  PRIVATE ${CMAKE_SOURCE_DIR}/src/modules/Eluna
+  PRIVATE ${ELUNA_SOURCE_DIR}
 )
 
 # Eluna's headers include lua.h in turn, so the lua headers have to come along
