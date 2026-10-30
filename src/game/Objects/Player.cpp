@@ -6560,52 +6560,6 @@ void Player::RepopAtGraveyard()
 
     // Special handle for battleground maps
     uint32 TeleOptions = TELE_TO_NOT_UNSUMMON_PET;
-
-    // Solo dungeon resurrection: a player who dies ALONE inside an instance is
-    // brought back alive just inside the entrance instead of having to walk
-    // back as a ghost - solo there is nobody who could resurrect them.
-    //
-    // The target is the instance ENTRANCE trigger, not a graveyard: instance
-    // graveyards sit outside the instance (that is what the corpse run is for),
-    // so resurrecting at one would drop the player out of the dungeon.
-    //
-    // Deliberately solo only - with a group present someone can resurrect, and
-    // this would be a free pass. Map::IsDungeon() covers raids and excludes
-    // battlegrounds, which are their own map type.
-    // "Solo" means nobody who could resurrect you: no group, or a group whose
-    // only other members are bots. After a wipe a bot party is no more help
-    // than an empty one, and releasing the spirit already means you chose not
-    // to wait for a resurrection.
-    bool noHumanHelp = !GetGroup();
-    if (!noHumanHelp)
-    {
-        noHumanHelp = true;
-        for (GroupReference* itr = GetGroup()->GetFirstMember(); itr; itr = itr->next())
-        {
-            Player* member = itr->getSource();
-            if (member && member != this && !Script_IsAIControlled(member))
-            {
-                noHumanHelp = false;
-                break;
-            }
-        }
-    }
-
-    // AI resurrection is governed by its group-wide recovery timer, not by
-    // releasing spirit. Keep the solo entrance option for human players.
-    bool const repopAtEntrance = sWorld.getConfig(CONFIG_BOOL_SOLO_DUNGEON_REPOP_ALIVE) &&
-        noHumanHelp && !Script_IsAIControlled(this);
-
-    if (!IsAlive() && repopAtEntrance && GetMap() && GetMap()->IsDungeon())
-    {
-        if (AreaTriggerTeleport const* entrance = sObjectMgr.GetMapEntranceTrigger(GetMapId()))
-        {
-            ResurrectPlayer(1.0f);
-            SpawnCorpseBones();
-            TeleportTo(entrance->destination, TeleOptions);
-            return;
-        }
-    }
     if (BattleGround *bg = GetBattleGround())
     {
         ClosestGrave = bg->GetClosestGraveYard(this);

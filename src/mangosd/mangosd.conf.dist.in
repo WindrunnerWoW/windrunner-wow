@@ -2299,12 +2299,6 @@ Leech.RealPlayersOnly = 1
 Leech.SoloOnly = 1
 Leech.DungeonOnly = 1
 
-# SoloDungeonRepopAlive. A player who dies ALONE inside an instance is brought
-# back alive just inside the entrance instead of having to walk their corpse
-# back - solo there is nobody who could resurrect them. Does nothing while in a
-# group, since a group can resurrect. Map::IsDungeon() covers raids too.
-SoloDungeonRepopAlive.Enable = 0
-
 # GuildBank.NpcEntries*. Which creatures count as guild vault keepers - a player
 # has to stand next to one of them for guild bank actions to be accepted.
 # Previously 80917/80918 were hardcoded, so only Stormwind and Orgrimmar worked.

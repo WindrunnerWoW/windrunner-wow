@@ -753,8 +753,6 @@ enum eConfigBoolValues
     CONFIG_BOOL_LEECH_REAL_PLAYERS_ONLY,
     CONFIG_BOOL_LEECH_SOLO_ONLY,
     CONFIG_BOOL_LEECH_DUNGEON_ONLY,
-    // Solo dungeon resurrection, see Player::RepopAtGraveyard
-    CONFIG_BOOL_SOLO_DUNGEON_REPOP_ALIVE,
     // Dungeon finder: fill a waiting player's group with random bots.
     // See LFT/LFTBotFill.cpp
     CONFIG_BOOL_LFT_BOTFILL_ENABLE,

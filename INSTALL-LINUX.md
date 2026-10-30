@@ -201,7 +201,6 @@ fork adds is off by default:
 
 ```
 LFT.BotFill.Enable = 1
-SoloDungeonRepopAlive.Enable = 1
 Leech.Enable = 1
 ```
 
