@@ -11,6 +11,9 @@ Some basic guidelines for contributing to this project
 - Always point to issues that you are resolving in PRs. If no issue exists, create one and label appropriately.
 - Avoid direct spell edits, instead use spell_affect, spell_proc_event, spell_scripts, or backend code when needed. In rare cases spell_mod can be used to edit the spell on the fly
 
+# Behavioral Changes
+Any modification of creature, script, quest, etc, behavior should be accompanied by at least video proof taken from a real turtle source server (See [Valid Data Sources](docs/development/valid-data-sources.md))  
+Ideally included would be a video, anonymized pcap, and combat log, but the latter two are not always needed depending on the behavior that is being modified
 
 [21]: https://github.com/laytya/DPSMate
 

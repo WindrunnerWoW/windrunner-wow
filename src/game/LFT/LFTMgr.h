@@ -80,6 +80,60 @@ class LFTManager
         // World-thread only. Copy of current queue for module policy decisions.
         std::vector<QueuedInfo> GetQueuedPlayers() const;
 
+        // Group-listing module API. World-thread only. Acts only for characters a module
+        // manages (sScriptMgr.IsBotManaged): a human's listing and role rows stay written by
+        // that human's own client. Validation is the addon path's (one listing per leader,
+        // leader or solo, category, role limits) plus stricter checks; packets are the addon
+        // path's (CreateListing / ApplyListingSignup / EraseListing + BroadcastGroupsList).
+        // Every call that changes nothing sends nothing.
+
+        // Lists the leader's group in the group finder (as C2S_NEW_GROUP). Fails if the
+        // leader already has a listing (RemoveGroupListing first). limits = tank, healer,
+        // damage wanted; all zero = no roles. category 1-4 as the addon's browse tabs.
+        // outListingId, if given, receives the new listing's id, set only on success.
+        bool CreateGroupListing(Player* leader, std::string const& title, std::string const& description,
+                                uint8 category, std::array<uint8, 3> const& limits, uint32* outListingId = nullptr);
+        // Removes the leader's listing (as C2S_DELETE_GROUP). False if it has none.
+        bool RemoveGroupListing(Player* leader);
+        // Sets a managed party member's role row on the leader's listing (as that member's
+        // C2C_ROLECHECK_RESPONSE t/h/d). role = one LFTRoles bit allowed for the member's class.
+        // Never invites anybody: the member must already be the leader or in the leader's group.
+        bool AcceptListingSignup(Player* leader, ObjectGuid const& memberGuid, uint8 role);
+        // Clears an existing role row on the leader's listing (as C2C_ROLECHECK_RESPONSE;0).
+        // Only a module-managed member of the leader's party: the member must resolve as a
+        // live Player (in world), be the leader or in the leader's group, and be bot-managed;
+        // a human's row is changed only by their own client. False if the checks fail or the
+        // listing has no row for that member. Stale rows of departed players stay the job of
+        // the PruneListingSignups path.
+        bool DeclineListingSignup(Player* leader, ObjectGuid const& memberGuid);
+
+        struct ListingSignupInfo
+        {
+            std::string name;
+            std::string className;
+            uint32 level = 0;
+            uint8 role = 0;            // one LFTRoles bit
+        };
+        struct GroupListingInfo
+        {
+            uint32 id = 0;
+            ObjectGuid creatorGuid;
+            std::string creator;
+            std::string className;
+            uint32 level = 0;
+            uint32 team = 0;
+            bool isHardcore = false;
+            std::string title;
+            std::string description;
+            uint8 category = 1;
+            std::array<uint8, 3> limit = {{0, 0, 0}};
+            std::array<uint8, 3> numConfirmed = {{0, 0, 0}};
+            std::vector<ListingSignupInfo> signups;
+        };
+        // World-thread only. Copy of all listings (rows as last saved; they are pruned on the
+        // next change, not here). Not const: loads the stored listings on first use.
+        std::vector<GroupListingInfo> GetGroupListings();
+
     private:
         struct ListingSignup
         {
@@ -189,6 +243,13 @@ class LFTManager
         void RemoveListingSignup(Listing& listing, std::string const& name);
         void SetListingSignupRole(Listing& listing, Player* player, uint8 roleIdx);
         void PruneListingSignups(Listing& listing);
+        bool IsListingLeader(Player const* player) const;
+        Listing* GetListingByCreator(ObjectGuid const& creatorGuid);
+        ListingsMap::iterator EraseListing(ListingsMap::iterator itr);
+        bool RemoveListingsByCreator(ObjectGuid const& creatorGuid);
+        uint32 CreateListing(Player* leader, std::string const& title, std::string const& description,
+                             uint8 category, std::array<uint8, 3> const& limits);
+        void ApplyListingSignup(Listing& listing, std::string const& memberName, Player* member, uint8 roleIdx);
         std::string SerializeSignups(std::vector<ListingSignup> const& signups) const;
         std::vector<ListingSignup> DeserializeSignups(std::string const& value) const;
         bool CanPlayerSeeListing(Player const* player, Listing const& listing) const;

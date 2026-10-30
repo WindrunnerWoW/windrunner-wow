@@ -4,6 +4,8 @@
 #include "Group.h"
 #include "ObjectMgr.h"
 #include "Player.h"
+#include "ScriptMgr.h"
+#include "Util.h"
 #include "World.h"
 
 #include <algorithm>
@@ -124,6 +126,34 @@ namespace
 
         return 0;
     }
+
+    uint8 RoleIndexFromMask(uint8 mask)
+    {
+        if (mask == LFT_ROLE_TANK)
+            return 1;
+
+        if (mask == LFT_ROLE_HEALER)
+            return 2;
+
+        if (mask == LFT_ROLE_DAMAGE)
+            return 3;
+
+        return 0;
+    }
+
+    uint8 RoleMaskFromIndex(uint8 idx)
+    {
+        if (idx == 1)
+            return LFT_ROLE_TANK;
+
+        if (idx == 2)
+            return LFT_ROLE_HEALER;
+
+        if (idx == 3)
+            return LFT_ROLE_DAMAGE;
+
+        return 0;
+    }
 }
 
 
@@ -160,45 +190,16 @@ void LFTManager::HandleNewGroup(Player* player, std::vector<std::string> const& 
     if (fields.size() < 5)
         return;
 
-    Group* group = player->GetGroup();
-    if (group && !group->IsLeader(player->GetObjectGuid()))
+    if (!IsListingLeader(player))
     {
         Send(player, "S2C_QUEUE_ERROR;not_leader");
         return;
     }
 
-    for (ListingsMap::iterator itr = m_listings.begin(); itr != m_listings.end();)
-    {
-        if (itr->second.creatorGuid == player->GetObjectGuid())
-        {
-            DeleteListingFromDB(itr->second.id);
-            itr = m_listings.erase(itr);
-        }
-        else
-        {
-            ++itr;
-        }
-    }
-
-    Listing listing;
-    listing.id = m_nextListingId++;
-    listing.creatorGuid = player->GetObjectGuid();
-    listing.creator = player->GetName();
-    listing.className = ClassName(player);
-    listing.level = player->GetLevel();
-    listing.team = player->GetTeam();
-    listing.isHardcore = player->IsHardcore();
-    listing.title = fields[1];
-    listing.description = fields[2];
-    listing.category = uint8(std::strtoul(fields[3].c_str(), nullptr, 10));
-    if (listing.category < 1 || listing.category > 4)
-        listing.category = 4;
-    listing.limit = ParseRoleCounts(fields[4]);
-
-    m_listings[listing.id] = listing;
-    SaveListingToDB(m_listings[listing.id]);
-    BroadcastGroupsList();
-    SendGroupDetails(player, m_listings[listing.id]);
+    uint8 category = uint8(std::strtoul(fields[3].c_str(), nullptr, 10));
+    if (category < 1 || category > 4)
+        category = 4;
+    CreateListing(player, fields[1], fields[2], category, ParseRoleCounts(fields[4]));
 }
 
 void LFTManager::HandleUpdateGroup(Player* player, std::vector<std::string> const& fields)
@@ -273,8 +274,7 @@ void LFTManager::HandleDeleteGroup(Player* player, std::vector<std::string> cons
     if (itr == m_listings.end() || itr->second.creatorGuid != player->GetObjectGuid())
         return;
 
-    DeleteListingFromDB(itr->second.id);
-    m_listings.erase(itr);
+    EraseListing(itr);
     BroadcastGroupsList();
 }
 
@@ -295,6 +295,89 @@ void LFTManager::HandleSignup(Player* player, std::vector<std::string> const& fi
         SendGroupDetails(creator, *listing);
 }
 
+bool LFTManager::IsListingLeader(Player const* player) const
+{
+    if (!player)
+        return false;
+
+    Group const* group = player->GetGroup();
+    return !group || group->IsLeader(player->GetObjectGuid());
+}
+
+LFTManager::Listing* LFTManager::GetListingByCreator(ObjectGuid const& creatorGuid)
+{
+    for (ListingsMap::iterator itr = m_listings.begin(); itr != m_listings.end(); ++itr)
+    {
+        if (itr->second.creatorGuid == creatorGuid)
+            return &itr->second;
+    }
+
+    return nullptr;
+}
+
+LFTManager::ListingsMap::iterator LFTManager::EraseListing(ListingsMap::iterator itr)
+{
+    DeleteListingFromDB(itr->second.id);
+    return m_listings.erase(itr);
+}
+
+bool LFTManager::RemoveListingsByCreator(ObjectGuid const& creatorGuid)
+{
+    bool removed = false;
+    for (ListingsMap::iterator itr = m_listings.begin(); itr != m_listings.end();)
+    {
+        if (itr->second.creatorGuid == creatorGuid)
+        {
+            itr = EraseListing(itr);
+            removed = true;
+        }
+        else
+        {
+            ++itr;
+        }
+    }
+
+    return removed;
+}
+
+uint32 LFTManager::CreateListing(Player* leader, std::string const& title, std::string const& description,
+                                 uint8 category, std::array<uint8, 3> const& limits)
+{
+    RemoveListingsByCreator(leader->GetObjectGuid());
+
+    Listing listing;
+    listing.id = m_nextListingId++;
+    listing.creatorGuid = leader->GetObjectGuid();
+    listing.creator = leader->GetName();
+    listing.className = ClassName(leader);
+    listing.level = leader->GetLevel();
+    listing.team = leader->GetTeam();
+    listing.isHardcore = leader->IsHardcore();
+    listing.title = title;
+    listing.description = description;
+    listing.category = category;
+    listing.limit = limits;
+
+    m_listings[listing.id] = listing;
+    SaveListingToDB(m_listings[listing.id]);
+    BroadcastGroupsList();
+    SendGroupDetails(leader, m_listings[listing.id]);
+    return listing.id;
+}
+
+void LFTManager::ApplyListingSignup(Listing& listing, std::string const& memberName, Player* member, uint8 roleIdx)
+{
+    if (roleIdx)
+        SetListingSignupRole(listing, member, roleIdx);
+    else
+        RemoveListingSignup(listing, memberName);
+
+    PruneListingSignups(listing);
+    RecountListing(listing);
+    SaveListingToDB(listing);
+    BroadcastGroupsList();
+}
+
 void LFTManager::HandleManualRolecheckResponse(Player* player, std::vector<std::string> const& fields)
 {
     if (!player || fields.size() < 2)
@@ -305,15 +388,215 @@ void LFTManager::HandleManualRolecheckResponse(Player* player, std::vector<std::
     if (!listing)
         return;
 
-    if (roleIdx)
-        SetListingSignupRole(*listing, player, roleIdx);
-    else
-        RemoveListingSignup(*listing, player->GetName());
+    ApplyListingSignup(*listing, player->GetName(), player, roleIdx);
+}
 
-    PruneListingSignups(*listing);
-    RecountListing(*listing);
-    SaveListingToDB(*listing);
+bool LFTManager::CreateGroupListing(Player* leader, std::string const& title, std::string const& description,
+                                     uint8 category, std::array<uint8, 3> const& limits, uint32* outListingId)
+{
+    EnsureListingsLoaded();
+
+    if (!leader || !leader->IsInWorld())
+        return false;
+
+    if (!sScriptMgr.IsBotManaged(leader))
+        return false;
+
+    if (!IsListingLeader(leader))
+        return false;
+
+    if (GetListingByCreator(leader->GetObjectGuid()))
+        return false;
+
+    if (category < 1 || category > 4)
+        return false;
+
+    uint32 wanted = 0;
+    for (uint8 count : limits)
+    {
+        if (count > MAX_RAID_SIZE)
+            return false;
+        wanted += count;
+    }
+    if (wanted > MAX_RAID_SIZE)
+        return false;
+
+    if (title.find_first_not_of(" \t") == std::string::npos)
+        return false;
+    if (title.size() > 128 || title.size() + description.size() > 200)
+        return false;
+    for (char c : title)
+    {
+        unsigned char uc = static_cast<unsigned char>(c);
+        if (c == ';' || uc < 0x20 || uc == 0x7F)
+            return false;
+    }
+    for (char c : description)
+    {
+        unsigned char uc = static_cast<unsigned char>(c);
+        if (c == ';' || uc < 0x20 || uc == 0x7F)
+            return false;
+    }
+    std::wstring wide;
+    if (!Utf8toWStr(title, wide) || !Utf8toWStr(description, wide))
+        return false;
+
+    uint32 listingId = CreateListing(leader, title, description, category, limits);
+    if (outListingId)
+        *outListingId = listingId;
+    return true;
+}
+
+bool LFTManager::RemoveGroupListing(Player* leader)
+{
+    EnsureListingsLoaded();
+
+    if (!leader || !leader->IsInWorld())
+        return false;
+
+    if (!sScriptMgr.IsBotManaged(leader))
+        return false;
+
+    if (!RemoveListingsByCreator(leader->GetObjectGuid()))
+        return false;
+
     BroadcastGroupsList();
+    return true;
+}
+
+bool LFTManager::AcceptListingSignup(Player* leader, ObjectGuid const& memberGuid, uint8 role)
+{
+    EnsureListingsLoaded();
+
+    if (!leader || !leader->IsInWorld())
+        return false;
+
+    if (!sScriptMgr.IsBotManaged(leader))
+        return false;
+
+    Listing* listing = GetListingByCreator(leader->GetObjectGuid());
+    if (!listing)
+        return false;
+
+    if (!IsListingLeader(leader))
+        return false;
+
+    Player* member = GetPlayer(memberGuid);
+    if (!member || (member != leader && (!leader->GetGroup() || !leader->GetGroup()->IsMember(memberGuid))))
+        return false;
+
+    if (!sScriptMgr.IsBotManaged(member))
+        return false;
+
+    uint8 roleIdx = RoleIndexFromMask(role);
+    if (!roleIdx || !(role & AllowedRoleMask(member)))
+        return false;
+
+    std::string memberName = member->GetName();
+    std::string normalized = memberName;
+    if (normalizePlayerName(normalized))
+    {
+        for (ListingSignup const& signup : listing->signups[roleIdx - 1])
+        {
+            std::string signupName = signup.name;
+            if (normalizePlayerName(signupName) && signupName == normalized)
+                return true;
+        }
+    }
+
+    ApplyListingSignup(*listing, memberName, member, roleIdx);
+    return true;
+}
+
+bool LFTManager::DeclineListingSignup(Player* leader, ObjectGuid const& memberGuid)
+{
+    EnsureListingsLoaded();
+
+    if (!leader || !leader->IsInWorld())
+        return false;
+
+    if (!sScriptMgr.IsBotManaged(leader))
+        return false;
+
+    Listing* listing = GetListingByCreator(leader->GetObjectGuid());
+    if (!listing)
+        return false;
+
+    if (!IsListingLeader(leader))
+        return false;
+
+    Player* member = GetPlayer(memberGuid);
+    if (!member || (member != leader && (!leader->GetGroup() || !leader->GetGroup()->IsMember(memberGuid))))
+        return false;
+
+    if (!sScriptMgr.IsBotManaged(member))
+        return false;
+
+    std::string name = member->GetName();
+
+    std::string normalized = name;
+    if (!normalizePlayerName(normalized))
+        return false;
+
+    bool found = false;
+    for (std::vector<ListingSignup> const& roleSignups : listing->signups)
+    {
+        for (ListingSignup const& signup : roleSignups)
+        {
+            std::string signupName = signup.name;
+            if (normalizePlayerName(signupName) && signupName == normalized)
+            {
+                found = true;
+                break;
+            }
+        }
+        if (found)
+            break;
+    }
+    if (!found)
+        return false;
+
+    ApplyListingSignup(*listing, name, member, 0);
+    return true;
+}
+
+std::vector<LFTManager::GroupListingInfo> LFTManager::GetGroupListings()
+{
+    EnsureListingsLoaded();
+
+    std::vector<GroupListingInfo> infos;
+    for (ListingsMap::const_iterator itr = m_listings.begin(); itr != m_listings.end(); ++itr)
+    {
+        Listing const& listing = itr->second;
+        GroupListingInfo info;
+        info.id = listing.id;
+        info.creatorGuid = listing.creatorGuid;
+        info.creator = listing.creator;
+        info.className = listing.className;
+        info.level = listing.level;
+        info.team = listing.team;
+        info.isHardcore = listing.isHardcore;
+        info.title = listing.title;
+        info.description = listing.description;
+        info.category = listing.category;
+        info.limit = listing.limit;
+        info.numConfirmed = listing.numConfirmed;
+        for (uint8 roleIdx = 0; roleIdx < listing.signups.size(); ++roleIdx)
+        {
+            for (ListingSignup const& signup : listing.signups[roleIdx])
+            {
+                ListingSignupInfo row;
+                row.name = signup.name;
+                row.className = signup.className;
+                row.level = signup.level;
+                row.role = RoleMaskFromIndex(roleIdx + 1);
+                info.signups.push_back(row);
+            }
+        }
+        infos.push_back(info);
+    }
+
+    return infos;
 }
 
 void LFTManager::BroadcastGroupsList()

@@ -815,6 +815,10 @@ class GameObject : public WorldObject
 
         Loot loot;
 
+#ifdef ENABLE_ELUNA
+        Player* GetLootRecipient() const;
+        Group* GetGroupLootRecipient() const;
+#endif
         bool HasQuest(uint32 quest_id) const override;
         bool HasInvolvedQuest(uint32 quest_id) const override;
         bool ActivateToQuest(Player *pTarget) const;
@@ -915,6 +919,11 @@ class GameObject : public WorldObject
 
         uint32 m_playerGroupId;
     private:
+#ifdef ENABLE_ELUNA
+        // Set by Create: GAMEOBJECT_EVENT_ON_SPAWN fires in AddToWorld, once
+        // the object is in its map (a timer registered in it needs that).
+        bool m_elunaSpawnPending = false;
+#endif
         void SwitchDoorOrButton(bool activate, bool alternative = false);
 
         GridReference<GameObject> m_gridRef;

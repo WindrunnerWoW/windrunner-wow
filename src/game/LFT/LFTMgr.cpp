@@ -145,22 +145,7 @@ void LFTManager::OnPlayerLogout(ObjectGuid const& guid)
     EnsureListingsLoaded();
     CleanupPlayer(guid);
 
-    bool changedListings = false;
-    for (ListingsMap::iterator itr = m_listings.begin(); itr != m_listings.end();)
-    {
-        if (itr->second.creatorGuid == guid)
-        {
-            changedListings = true;
-            DeleteListingFromDB(itr->second.id);
-            itr = m_listings.erase(itr);
-        }
-        else
-        {
-            ++itr;
-        }
-    }
-
-    if (changedListings)
+    if (RemoveListingsByCreator(guid))
         BroadcastGroupsList();
 }
 

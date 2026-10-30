@@ -1,0 +1,79 @@
+tortoise-wow: an object's timed events free their Lua function references when its processor is removed (the object left its map or was destroyed); they stayed in the registry for the state's lifetime.
+
+EventMgr::CleanupObjectProcessors (and the replace path of patch 0001) set
+the processor's events to LUAEVENT_STATE_ERASE before destroying it.
+ElunaEventProcessor::RemoveEvent skips luaL_unref for ERASE, which is meant
+for a closed or reloaded state. The state here is alive, so every timer still
+pending on a despawned, logged out or teleported object kept its function, and
+whatever its upvalues reach, in LUA_REGISTRYINDEX. ABORT unrefs them.
+
+A reload still marks every event ERASE (its references belong to the closed
+state). SetAllEventStates now also reaches the processors parked in
+replacedObjectProcessors by patch 0001, which are not in `processors`: with
+ABORT they would otherwise unref the old state's reference numbers in the new
+state at the next cleanup, freeing live references of the new state.
+
+Base: ElunaLuaEngine/Eluna 1b06f28ff3a00054d915d824c725fb4283fee74d (branch
+cmangos-spell-update), the dep/Eluna pin, with patches 0001-0005 applied. Eluna is
+GPL-3.0 (https://github.com/ElunaLuaEngine/Eluna, LICENSE); this change is under
+the same licence. Applied by cmake/ElunaSources.cmake to a copy in the build tree.
+Candidate to upstream to Eluna (Eluna master, last changed in ElunaEventMgr.cpp by a80c638, has the same ERASE in CleanupObjectProcessors).
+diff --git a/ElunaEventMgr.cpp b/ElunaEventMgr.cpp
+index 9fe50d4..ec2af49 100644
+--- a/ElunaEventMgr.cpp
++++ b/ElunaEventMgr.cpp
+@@ -210,6 +210,13 @@ void EventMgr::SetAllEventStates(LuaEventState state)
+ {
+     for (auto* processor : processors)
+         processor->SetStates(state);
++
++    // Replaced processors are no longer in `processors` but are destroyed
++    // only at the next cleanup. A reload (ERASE) must reach their events too:
++    // their references belong to the state being closed, and unreferencing
++    // them in the new state would free its live references.
++    for (auto& processor : replacedObjectProcessors)
++        processor->SetStates(state);
+ }
+ 
+ void EventMgr::SetEventState(int eventId, LuaEventState state)
+@@ -241,8 +248,10 @@ uint64 EventMgr::CreateObjectProcessor(WorldObject* obj)
+         // Flagged for deletion but not cleaned up yet. emplace below would
+         // keep the old entry and destroy the new processor while `processors`
+         // still held its pointer (use after free in UpdateProcessors).
++        // ABORT, not ERASE: the state is alive, so the old processor's
++        // events free their Lua function references when it is destroyed.
+         ElunaEventProcessor* old = existing->second.get();
+-        old->SetStates(LUAEVENT_STATE_ERASE);
++        old->SetStates(LUAEVENT_STATE_ABORT);
+         processors.erase(old);
+         objectProcessorsPendingDelete.erase(id);
+         replacedObjectProcessors.push_back(std::move(existing->second));
+@@ -287,8 +296,14 @@ void EventMgr::CleanupObjectProcessors()
+         if (it == objectProcessors.end())
+             continue;
+ 
++        // ABORT, not ERASE: ERASE keeps the event's Lua function reference
++        // (it is for a closed or reloaded state, whose references are gone).
++        // This state is alive, so the processor's destructor must unref every
++        // pending event, or each object that leaves its map or is destroyed
++        // with a timer pending leaves its function (and everything the
++        // function's upvalues reach) in the registry for the state's lifetime.
+         ElunaEventProcessor* p = it->second.get();
+-        p->SetStates(LUAEVENT_STATE_ERASE);
++        p->SetStates(LUAEVENT_STATE_ABORT);
+ 
+         processors.erase(p);
+         objectProcessors.erase(it);
+diff --git a/ElunaEventMgr.h b/ElunaEventMgr.h
+index c0b3821..a501d23 100644
+--- a/ElunaEventMgr.h
++++ b/ElunaEventMgr.h
+@@ -9,6 +9,8 @@
+ 
+ // tortoise-wow dep/eluna-patches/0001 is applied (checked by the core).
+ #define ELUNA_TW_PATCH_0001 1
++// tortoise-wow dep/eluna-patches/0006 is applied (checked by the core).
++#define ELUNA_TW_PATCH_0006 1
+ 
+ #include "ElunaUtility.h"
+ #include "Common.h"
