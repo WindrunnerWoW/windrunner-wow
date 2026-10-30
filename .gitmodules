@@ -26,5 +26,5 @@
 
 [submodule "modules/mod-hearthstone"]
 	path = modules/mod-hearthstone
-	url = https://github.com/WrkX/windrunner-hearthstone.git
+	url = https://github.com/WindrunnerWoW/windrunner-hearthstone.git
 	branch = main
