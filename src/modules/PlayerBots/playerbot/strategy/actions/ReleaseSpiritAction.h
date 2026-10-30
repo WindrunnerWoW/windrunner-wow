@@ -5,6 +5,7 @@
 #include "MovementActions.h"
 #include "playerbot/strategy/values/LastMovementValue.h"
 #include "ReviveFromCorpseAction.h"
+#include "AutoReviveAction.h"
 #include "playerbot/TravelMgr.h"
 
 #include "playerbot/BotSlots.h"
@@ -32,7 +33,15 @@ namespace ai
             }
 
             WorldPacket& p = event.getPacket();
-            if (!p.empty() && p.GetOpcode() == CMSG_REPOP_REQUEST)
+            bool const mirrorsMaster = !p.empty() && p.GetOpcode() == CMSG_REPOP_REQUEST;
+
+            // Following the master's own release is not an order to release:
+            // a companion dead in a dungeon stays a corpse (see AutoReleaseSpiritAction).
+            // Only the explicit "release" command lets it go.
+            if (mirrorsMaster && AutoReviveAction::ShouldWaitForAutoRevive(bot))
+                return false;
+
+            if (mirrorsMaster)
                 ai->TellPlayerNoFacing(requester, "Releasing...", PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, false);
             else
                 ai->TellPlayerNoFacing(requester, "Meet me at the graveyard", PlayerbotSecurityLevel::PLAYERBOT_SECURITY_ALLOW_ALL, false);
@@ -85,6 +94,12 @@ namespace ai
                 return false;
 
             if (bot->GetCorpse())
+                return false;
+
+            // A companion of a real player that died in a dungeon never
+            // releases: it waits as a corpse for a rezzer or auto revive,
+            // wherever its master is. The "release" command still works.
+            if (AutoReviveAction::ShouldWaitForAutoRevive(bot))
                 return false;
 
 #ifndef MANGOSBOT_ZERO

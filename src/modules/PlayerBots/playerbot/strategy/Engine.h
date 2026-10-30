@@ -111,6 +111,9 @@ namespace ai
         ActionNode* CreateActionNode(const std::string& name);
         virtual Action* InitializeAction(ActionNode* actionNode);
         virtual bool ListenAndExecute(Action* action, Event& event);
+        // True when replies sent while executing this event answer the owner
+        // (companion mode only); used by both Engine and ReactionEngine.
+        bool IsOwnerReplyEvent(Event& event) const;
 
     private:
         void LogAction(const char* format, ...);

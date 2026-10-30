@@ -597,6 +597,31 @@ public:
     Player* GetMaster() { return master; }
     bool IsOwnerReplyContext() const { return m_ownerReplyContext; }
 
+    // RAII scope that marks replies as answers to the owner (companion mode
+    // only lets TellPlayerNoFacing through inside such a scope). Shared by
+    // command handling, Engine and ReactionEngine; as a nested class it can
+    // reach m_ownerReplyContext without each user needing friendship.
+    class OwnerReplyContextGuard
+    {
+    public:
+        OwnerReplyContextGuard(PlayerbotAI* ai, bool enabled) : context(ai->m_ownerReplyContext), previous(context)
+        {
+            context = enabled;
+        }
+
+        ~OwnerReplyContextGuard()
+        {
+            context = previous;
+        }
+
+        OwnerReplyContextGuard(const OwnerReplyContextGuard&) = delete;
+        OwnerReplyContextGuard& operator=(const OwnerReplyContextGuard&) = delete;
+
+    private:
+        bool& context;
+        bool previous;
+    };
+
     // accessor for the active engine so
     // cpp can build heartbeat / debug payloads without being
     // a friend class. Read-only.

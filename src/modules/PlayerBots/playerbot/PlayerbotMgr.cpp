@@ -13,6 +13,7 @@
 #include "Chat/ChannelMgr.h"
 #include "SocialMgr.h"
 #include "AccountMgr.h"
+#include "strategy/actions/AutoLearnSpellAction.h"
 #include "strategy/actions/ChangeTalentsAction.h"
 #include "strategy/actions/InviteToGroupAction.h"
 #include "AiFactory.h"
@@ -835,6 +836,16 @@ void PlayerbotHolder::OnBotLogin(Player * const bot)
     ai->AllowActivity(ALL_ACTIVITY, true);
     // set delay on login
     ai->SetActionDuration(urand(2000, 4000));
+
+    // Class quest reward spells (warlock Voidwalker/Succubus/Felhunter, ...)
+    // are otherwise only granted by the "levelup" trigger, so a companion that
+    // was already levelled (or levelled while the option was off) never gets
+    // them. Catch up once per login; spells already known are skipped.
+    if (sPlayerbotAIConfig.autoLearnQuestSpells && ai->HasRealPlayerMaster())
+    {
+        AutoLearnSpellAction learner(ai);
+        learner.LearnMissingQuestSpells();
+    }
 
     ai->TellPlayer(ai->GetMaster(), BOT_TEXT("hello"));
 

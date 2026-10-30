@@ -653,11 +653,14 @@ namespace ai
 	class NoPetTrigger : public Trigger
 	{
 	public:
-		NoPetTrigger(PlayerbotAI* ai) : Trigger(ai, "no pet", 30) {}
+		// 5s, not 30s: the summon it feeds is queued for only a few seconds, so
+		// a check that lost once to movement left the bot petless for another
+		// 30s (and in a dungeon effectively forever). The check itself is cheap.
+		NoPetTrigger(PlayerbotAI* ai) : Trigger(ai, "no pet", 5) {}
 
 		virtual bool IsActive() override
         {
-			return !AI_VALUE(Unit*, "pet target") && !AI_VALUE2(bool, "mounted", "self target");
+			return !AI_VALUE(Unit*, "pet target") && !AI_VALUE2(bool, "mounted", "self target") && !ai->IsInVehicle();
 		}
 	};
 

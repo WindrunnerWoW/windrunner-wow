@@ -64,9 +64,25 @@ private:
 
     ACTION_NODE_P(rebirth, "rebirth", "caster form");
 
-    ACTION_NODE_P(regrowth, "regrowth", "caster form");
+    // Regrowth is learned at level 12 and is the only heal several resto/
+    // offheal bands use ("low health", "party member low health"). Fall back
+    // to Healing Touch so low-level druids (or a Regrowth that cannot be cast
+    // right now) still heal in that band.
+    static ActionNode* regrowth(PlayerbotAI* ai)
+    {
+        return new ActionNode("regrowth",
+            /*P*/ NextAction::array(0, new NextAction("caster form"), NULL),
+            /*A*/ NextAction::array(0, new NextAction("healing touch"), NULL),
+            /*C*/ NULL);
+    }
 
-    ACTION_NODE_P(regrowth_on_party, "regrowth on party", "caster form");
+    static ActionNode* regrowth_on_party(PlayerbotAI* ai)
+    {
+        return new ActionNode("regrowth on party",
+            /*P*/ NextAction::array(0, new NextAction("caster form"), NULL),
+            /*A*/ NextAction::array(0, new NextAction("healing touch on party"), NULL),
+            /*C*/ NULL);
+    }
 
     ACTION_NODE_P(healing_touch, "healing touch", "caster form");
 

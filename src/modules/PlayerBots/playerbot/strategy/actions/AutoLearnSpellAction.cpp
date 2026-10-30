@@ -53,6 +53,12 @@ void AutoLearnSpellAction::LearnLevelAppropriateSpells()
     }
 }
 
+void AutoLearnSpellAction::LearnMissingQuestSpells()
+{
+    std::ostringstream out;
+    LearnQuestSpells(&out);
+}
+
 void AutoLearnSpellAction::LearnSpells(std::ostringstream* out)
 {
     BroadcastHelper::BroadcastLevelup(ai, bot);

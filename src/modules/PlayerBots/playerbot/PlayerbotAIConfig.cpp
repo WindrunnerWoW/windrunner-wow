@@ -741,7 +741,7 @@ bool PlayerbotAIConfig::Initialize()
     autoMaintenanceOnMasterVendor = config.GetBoolDefault("AiPlayerbot.AutoMaintenanceOnMasterVendor", true);
     companionBuffOutOfGroup = config.GetBoolDefault("AiPlayerbot.CompanionBuffOutOfGroup", false);
     autoReviveWithoutRezzer = config.GetBoolDefault("AiPlayerbot.AutoReviveWithoutRezzer", true);
-    autoReviveDelay = config.GetIntDefault("AiPlayerbot.AutoReviveDelay", 5);
+    autoReviveDelay = config.GetIntDefault("AiPlayerbot.AutoReviveDelay", 30);
     bgFillerEnabled = config.GetBoolDefault("AiPlayerbot.BgFiller.Enabled", true);
     bgFillerFillToMax = config.GetBoolDefault("AiPlayerbot.BgFiller.FillToMax", true);
     bgFillerMaxPerTeam = config.GetIntDefault("AiPlayerbot.BgFiller.MaxPerTeam", 15);
@@ -750,7 +750,7 @@ bool PlayerbotAIConfig::Initialize()
     bgFillerQueueTimeout = std::max(60, config.GetIntDefault("AiPlayerbot.BgFiller.QueueTimeoutSeconds", 900));
     autoPickTalents = config.GetStringDefault("AiPlayerbot.AutoPickTalents", "no");
     autoLearnTrainerSpells = config.GetBoolDefault("AiPlayerbot.AutoLearnTrainerSpells", false);
-    autoLearnQuestSpells = config.GetBoolDefault("AiPlayerbot.AutoLearnQuestSpells", false);
+    autoLearnQuestSpells = config.GetBoolDefault("AiPlayerbot.AutoLearnQuestSpells", true);
     autoLearnDroppedSpells = config.GetBoolDefault("AiPlayerbot.AutoLearnDroppedSpells", false);
     autoDoQuests = config.GetBoolDefault("AiPlayerbot.AutoDoQuests", true);
     syncLevelWithPlayers = config.GetBoolDefault("AiPlayerbot.SyncLevelWithPlayers", false);

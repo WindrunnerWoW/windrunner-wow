@@ -14,27 +14,6 @@
 
 using namespace ai;
 
-namespace
-{
-    class OwnerReplyContextGuard
-    {
-    public:
-        OwnerReplyContextGuard(bool& context, bool enabled) : context(context), previous(context)
-        {
-            context = enabled;
-        }
-
-        ~OwnerReplyContextGuard()
-        {
-            context = previous;
-        }
-
-    private:
-        bool& context;
-        bool previous;
-    };
-}
-
 Engine::Engine(PlayerbotAI* ai, AiObjectContext *factory, BotState state) : PlayerbotAIAware(ai), aiObjectContext(factory), state(state)
 {
     lastRelevance = 0.0f;
@@ -827,11 +806,17 @@ Action* Engine::InitializeAction(ActionNode* actionNode)
     return action;
 }
 
+bool Engine::IsOwnerReplyEvent(Event& event) const
+{
+    // Keep an already open owner-reply scope (nested execution from a chat
+    // command) and open one for owner chat-command events in companion mode.
+    return ai->IsOwnerReplyContext() || (sPlayerbotAIConfig.windrunnerCompanionMode &&
+        event.IsOwnerCommand() && event.getOwner() && event.getOwner() == ai->GetMaster());
+}
+
 bool Engine::ListenAndExecute(Action* action, Event& event)
 {
-    OwnerReplyContextGuard replyContext(ai->m_ownerReplyContext,
-        ai->m_ownerReplyContext || (sPlayerbotAIConfig.windrunnerCompanionMode &&
-            event.IsOwnerCommand() && event.getOwner() && event.getOwner() == ai->GetMaster()));
+    PlayerbotAI::OwnerReplyContextGuard replyContext(ai, IsOwnerReplyEvent(event));
 
     bool actionExecuted = false;
     Action* prevExecutedAction = lastExecutedAction;

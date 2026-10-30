@@ -424,46 +424,70 @@ void WarlockPetStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers
 
 void WarlockPetPvpStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
-
+    // In-combat fallback: the demon died (or was never summoned because the
+    // out-of-combat summon lost to movement). Imp needs no soul shard. Above
+    // the single-target dot openers, below "on attacker" dots, interrupts,
+    // fear and heals.
+    triggers.push_back(new TriggerNode(
+        "no pet",
+        NextAction::array(0, new NextAction("summon imp", ACTION_NORMAL + 3), NULL)));
 }
 
 void WarlockPetPvpStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
 {
+    // Out-of-combat summons sit at ACTION_HIGH + 6/7 (26/27). At ACTION_NORMAL
+    // they lost to mod-dungeon-clear's follower follow-tank (25) every tick
+    // until the queued entry expired, so a dungeon warlock never got its demon.
+    // They stay below DC's hold-at-camp/assist rungs (28/29) and only
+    // voidwalker beats DC needs-rest (26.5); a summon without the mana for it
+    // is impossible and simply waits for the drink.
     triggers.push_back(new TriggerNode(
         "no pet",
-        NextAction::array(0, new NextAction("summon succubus", ACTION_NORMAL), NULL)));
+        NextAction::array(0, new NextAction("summon succubus", ACTION_HIGH + 6), NULL)));
 
     triggers.push_back(new TriggerNode(
         "no pet",
-        NextAction::array(0, new NextAction("summon felhunter", ACTION_NORMAL), NULL)));
+        NextAction::array(0, new NextAction("summon felhunter", ACTION_HIGH + 6), NULL)));
 }
 
 void WarlockPetPveStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
-
+    // In-combat fallback: the demon died (or was never summoned because the
+    // out-of-combat summon lost to movement). Imp needs no soul shard. Above
+    // the single-target dot openers, below "on attacker" dots, interrupts,
+    // fear and heals.
+    triggers.push_back(new TriggerNode(
+        "no pet",
+        NextAction::array(0, new NextAction("summon imp", ACTION_NORMAL + 3), NULL)));
 }
 
 void WarlockPetPveStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     triggers.push_back(new TriggerNode(
         "no pet",
-        NextAction::array(0, new NextAction("summon voidwalker", ACTION_NORMAL + 1), NULL)));
+        NextAction::array(0, new NextAction("summon voidwalker", ACTION_HIGH + 7), NULL)));
 
     triggers.push_back(new TriggerNode(
         "no pet",
-        NextAction::array(0, new NextAction("summon imp", ACTION_NORMAL), NULL)));
+        NextAction::array(0, new NextAction("summon imp", ACTION_HIGH + 6), NULL)));
 }
 
 void WarlockPetRaidStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
-
+    // In-combat fallback: the demon died (or was never summoned because the
+    // out-of-combat summon lost to movement). Imp needs no soul shard. Above
+    // the single-target dot openers, below "on attacker" dots, interrupts,
+    // fear and heals.
+    triggers.push_back(new TriggerNode(
+        "no pet",
+        NextAction::array(0, new NextAction("summon imp", ACTION_NORMAL + 3), NULL)));
 }
 
 void WarlockPetRaidStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     triggers.push_back(new TriggerNode(
         "no pet",
-        NextAction::array(0, new NextAction("summon imp", ACTION_NORMAL), NULL)));
+        NextAction::array(0, new NextAction("summon imp", ACTION_HIGH + 6), NULL)));
 }
 
 void WarlockCursesStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -890,46 +914,70 @@ void WarlockPetStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers
 
 void WarlockPetPvpStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
-
+    // In-combat fallback: the demon died (or was never summoned because the
+    // out-of-combat summon lost to movement). Imp needs no soul shard. Above
+    // the single-target dot openers, below "on attacker" dots, interrupts,
+    // fear and heals.
+    triggers.push_back(new TriggerNode(
+        "no pet",
+        NextAction::array(0, new NextAction("summon imp", ACTION_NORMAL + 3), NULL)));
 }
 
 void WarlockPetPvpStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
 {
+    // Out-of-combat summons sit at ACTION_HIGH + 6/7 (26/27). At ACTION_NORMAL
+    // they lost to mod-dungeon-clear's follower follow-tank (25) every tick
+    // until the queued entry expired, so a dungeon warlock never got its demon.
+    // They stay below DC's hold-at-camp/assist rungs (28/29) and only
+    // voidwalker beats DC needs-rest (26.5); a summon without the mana for it
+    // is impossible and simply waits for the drink.
     triggers.push_back(new TriggerNode(
         "no pet",
-        NextAction::array(0, new NextAction("summon succubus", ACTION_NORMAL), NULL)));
+        NextAction::array(0, new NextAction("summon succubus", ACTION_HIGH + 6), NULL)));
 
     triggers.push_back(new TriggerNode(
         "no pet",
-        NextAction::array(0, new NextAction("summon felhunter", ACTION_NORMAL), NULL)));
+        NextAction::array(0, new NextAction("summon felhunter", ACTION_HIGH + 6), NULL)));
 }
 
 void WarlockPetPveStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
-
+    // In-combat fallback: the demon died (or was never summoned because the
+    // out-of-combat summon lost to movement). Imp needs no soul shard. Above
+    // the single-target dot openers, below "on attacker" dots, interrupts,
+    // fear and heals.
+    triggers.push_back(new TriggerNode(
+        "no pet",
+        NextAction::array(0, new NextAction("summon imp", ACTION_NORMAL + 3), NULL)));
 }
 
 void WarlockPetPveStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     triggers.push_back(new TriggerNode(
         "no pet",
-        NextAction::array(0, new NextAction("summon voidwalker", ACTION_NORMAL + 1), NULL)));
+        NextAction::array(0, new NextAction("summon voidwalker", ACTION_HIGH + 7), NULL)));
 
     triggers.push_back(new TriggerNode(
         "no pet",
-        NextAction::array(0, new NextAction("summon imp", ACTION_NORMAL), NULL)));
+        NextAction::array(0, new NextAction("summon imp", ACTION_HIGH + 6), NULL)));
 }
 
 void WarlockPetRaidStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
-
+    // In-combat fallback: the demon died (or was never summoned because the
+    // out-of-combat summon lost to movement). Imp needs no soul shard. Above
+    // the single-target dot openers, below "on attacker" dots, interrupts,
+    // fear and heals.
+    triggers.push_back(new TriggerNode(
+        "no pet",
+        NextAction::array(0, new NextAction("summon imp", ACTION_NORMAL + 3), NULL)));
 }
 
 void WarlockPetRaidStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     triggers.push_back(new TriggerNode(
         "no pet",
-        NextAction::array(0, new NextAction("summon imp", ACTION_NORMAL), NULL)));
+        NextAction::array(0, new NextAction("summon imp", ACTION_HIGH + 6), NULL)));
 }
 
 void WarlockCursesStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -1354,46 +1402,70 @@ void WarlockPetStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers
 
 void WarlockPetPvpStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
-
+    // In-combat fallback: the demon died (or was never summoned because the
+    // out-of-combat summon lost to movement). Imp needs no soul shard. Above
+    // the single-target dot openers, below "on attacker" dots, interrupts,
+    // fear and heals.
+    triggers.push_back(new TriggerNode(
+        "no pet",
+        NextAction::array(0, new NextAction("summon imp", ACTION_NORMAL + 3), NULL)));
 }
 
 void WarlockPetPvpStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
 {
+    // Out-of-combat summons sit at ACTION_HIGH + 6/7 (26/27). At ACTION_NORMAL
+    // they lost to mod-dungeon-clear's follower follow-tank (25) every tick
+    // until the queued entry expired, so a dungeon warlock never got its demon.
+    // They stay below DC's hold-at-camp/assist rungs (28/29) and only
+    // voidwalker beats DC needs-rest (26.5); a summon without the mana for it
+    // is impossible and simply waits for the drink.
     triggers.push_back(new TriggerNode(
         "no pet",
-        NextAction::array(0, new NextAction("summon succubus", ACTION_NORMAL), NULL)));
+        NextAction::array(0, new NextAction("summon succubus", ACTION_HIGH + 6), NULL)));
 
     triggers.push_back(new TriggerNode(
         "no pet",
-        NextAction::array(0, new NextAction("summon felhunter", ACTION_NORMAL), NULL)));
+        NextAction::array(0, new NextAction("summon felhunter", ACTION_HIGH + 6), NULL)));
 }
 
 void WarlockPetPveStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
-
+    // In-combat fallback: the demon died (or was never summoned because the
+    // out-of-combat summon lost to movement). Imp needs no soul shard. Above
+    // the single-target dot openers, below "on attacker" dots, interrupts,
+    // fear and heals.
+    triggers.push_back(new TriggerNode(
+        "no pet",
+        NextAction::array(0, new NextAction("summon imp", ACTION_NORMAL + 3), NULL)));
 }
 
 void WarlockPetPveStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     triggers.push_back(new TriggerNode(
         "no pet",
-        NextAction::array(0, new NextAction("summon voidwalker", ACTION_NORMAL + 1), NULL)));
+        NextAction::array(0, new NextAction("summon voidwalker", ACTION_HIGH + 7), NULL)));
 
     triggers.push_back(new TriggerNode(
         "no pet",
-        NextAction::array(0, new NextAction("summon imp", ACTION_NORMAL), NULL)));
+        NextAction::array(0, new NextAction("summon imp", ACTION_HIGH + 6), NULL)));
 }
 
 void WarlockPetRaidStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
-
+    // In-combat fallback: the demon died (or was never summoned because the
+    // out-of-combat summon lost to movement). Imp needs no soul shard. Above
+    // the single-target dot openers, below "on attacker" dots, interrupts,
+    // fear and heals.
+    triggers.push_back(new TriggerNode(
+        "no pet",
+        NextAction::array(0, new NextAction("summon imp", ACTION_NORMAL + 3), NULL)));
 }
 
 void WarlockPetRaidStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     triggers.push_back(new TriggerNode(
         "no pet",
-        NextAction::array(0, new NextAction("summon imp", ACTION_NORMAL), NULL)));
+        NextAction::array(0, new NextAction("summon imp", ACTION_HIGH + 6), NULL)));
 }
 
 void WarlockCursesStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)

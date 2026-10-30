@@ -381,15 +381,20 @@ AiPlayerbot.AutoMaintenanceOnMasterVendor = 1
 # Default: 0 (disabled)
 AiPlayerbot.CompanionBuffOutOfGroup = 0
 
-# Companions that die while nobody alive in the group can resurrect them (no living priest, paladin or
-# shaman - druid Rebirth does not count) get back up on their own once everyone still standing is out of
-# combat and their master is alive, instead of waiting for a "corpse run" command.
+# Companions of a real player that die inside a dungeon or raid never release their spirit, corpse-run or
+# go to a spirit healer there (the explicit "release" / "corpse run" commands still work). Once everyone
+# still standing is out of combat and their master is alive in the same instance, they are moved to the
+# master and raised there: after AutoReviveDelay if nobody alive in the group can resurrect (no living
+# priest, paladin or shaman - druid Rebirth does not count), otherwise after twice that delay if the
+# rezzer has not raised them by then. Outside dungeons companions corpse-run as normal and only get back
+# up on their own when nobody in the group can resurrect them.
 # Default: 1 (enabled)
 AiPlayerbot.AutoReviveWithoutRezzer = 1
 
-# Seconds the group must be out of combat before such a companion revives.
-# Default: 5
-AiPlayerbot.AutoReviveDelay = 5
+# Seconds the group must be out of combat before such a companion revives (doubled in a dungeon while a
+# rezzer is alive).
+# Default: 30
+AiPlayerbot.AutoReviveDelay = 30
 
 # Battleground filler (companion mode only). The random-bot pool is offline in companion mode, so nothing
 # else would ever queue for a battleground. When a real player queues, temporary bots of that level bracket
@@ -421,9 +426,10 @@ AiPlayerbot.AutoPickTalents = full
 # Default: 0 (disabled)
 AiPlayerbot.AutoLearnTrainerSpells = 0
 
-# Bots automatically learn classquest reward spells on levelup
-# Default: 0 (disabled)
-AiPlayerbot.AutoLearnQuestSpells = 0
+# Bots automatically learn classquest reward spells on levelup (and once on
+# login for bots that have a real player master, e.g. warlock summons)
+# Default: 1 (enabled)
+AiPlayerbot.AutoLearnQuestSpells = 1
 
 # Alt Bots automatically learn class spells from books dropped from dungeons and raids when leveled and they reached the required level of the book. Classic Only.
 # Default: 0 (disabled)

@@ -60,27 +60,6 @@
 
 using namespace ai;
 
-namespace
-{
-    class OwnerReplyContextGuard
-    {
-    public:
-        OwnerReplyContextGuard(bool& context, bool enabled) : context(context), previous(context)
-        {
-            context = enabled;
-        }
-
-        ~OwnerReplyContextGuard()
-        {
-            context = previous;
-        }
-
-    private:
-        bool& context;
-        bool previous;
-    };
-}
-
 std::vector<std::string>& split(const std::string &s, char delim, std::vector<std::string> &elems);
 std::vector<std::string> split(const std::string &s, char delim);
 char * strstri (std::string str1, std::string str2);
@@ -1686,7 +1665,7 @@ void PlayerbotAI::HandleCommands()
 
         std::string command = holder.GetCommand();
         Player* owner = holder.GetOwner();
-        OwnerReplyContextGuard replyContext(m_ownerReplyContext,
+        OwnerReplyContextGuard replyContext(this,
             sPlayerbotAIConfig.windrunnerCompanionMode && owner && owner == GetMaster());
         if (!helper.ParseChatCommand(command, owner) && holder.GetType() == CHAT_MSG_WHISPER)
         {
@@ -1986,7 +1965,7 @@ void PlayerbotAI::HandleCommand(uint32 type, const std::string& text, Player& fr
     if (sPlayerbotAIConfig.windrunnerCompanionMode && (!GetMaster() || &fromPlayer != GetMaster()))
         return;
 
-    OwnerReplyContextGuard replyContext(m_ownerReplyContext, sPlayerbotAIConfig.windrunnerCompanionMode);
+    OwnerReplyContextGuard replyContext(this, sPlayerbotAIConfig.windrunnerCompanionMode);
 
     std::string filtered = text;
 
@@ -2866,11 +2845,40 @@ void PlayerbotAI::DoNextAction(bool min)
         ResetStrategies();
 
     // Classic healers keep offdps from open-world init; drop it once they enter an instance.
-    if (HasStrategy("offdps", BotState::BOT_STATE_COMBAT))
+    // "update pve strats" also added the situation variant "offdps pve" next
+    // to the placeholder. Inside an instance only "update raid strats" runs and
+    // it only manages "offdps raid", so the pve variant (Moonfire/Smite/...)
+    // stayed forever. Check every variant so a bot whose placeholder is already
+    // gone still gets cleaned up; without the placeholder the update actions
+    // never add a variant back.
+    static const char* const offdpsStrategies[] = { "offdps", "offdps pve", "offdps pvp", "offdps raid" };
+    bool hasOffdps = false;
+    for (const char* offdps : offdpsStrategies)
+    {
+        if (HasStrategy(offdps, BotState::BOT_STATE_COMBAT) || HasStrategy(offdps, BotState::BOT_STATE_NON_COMBAT))
+        {
+            hasOffdps = true;
+            break;
+        }
+    }
+
+    if (hasOffdps)
     {
         Map* map = bot->GetMap();
         if (bot->InBattleGround() || (map && (map->IsDungeon() || map->IsRaid())))
-            ChangeStrategy("-offdps", BotState::BOT_STATE_COMBAT);
+        {
+            std::string change = "-offdps,-offdps pve,-offdps pvp,-offdps raid";
+
+            // Mirrors AiFactory::AddRoleStrategies / the non-combat init: a
+            // healer that may not off-dps also loses "dps assist", otherwise it
+            // keeps chasing assist targets between heals.
+            Engine* combatEngine = engines[(uint8)BotState::BOT_STATE_COMBAT];
+            if (combatEngine && combatEngine->ContainsStrategy(STRATEGY_TYPE_HEAL))
+                change += ",-dps assist";
+
+            ChangeStrategy(change, BotState::BOT_STATE_COMBAT);
+            ChangeStrategy(change, BotState::BOT_STATE_NON_COMBAT);
+        }
     }
 #else
     if ((bot->InBattleGround() && (!bot->IsBeingTeleported() && !bot->InArena()) && !HasStrategy("battleground", BotState::BOT_STATE_NON_COMBAT)) || ((!bot->IsBeingTeleported()&&bot->InArena()) && !HasStrategy("arena", BotState::BOT_STATE_NON_COMBAT)))
@@ -3257,6 +3265,13 @@ bool PlayerbotAI::IsTank(Player* player, bool inGroup)
     }
     else
     {
+        // A feral druid in cat form is a damage dealer, not a tank. The talent
+        // tree alone marks every feral druid as one, which made a cat druid
+        // that happened to be marked "tank" (or simply feral) get tank
+        // healing/target priority while it was actually DPSing.
+        if (player->getClass() == CLASS_DRUID && player->GetShapeshiftForm() == FORM_CAT)
+            return false;
+
         // A real player tanking on a levelling or dps build has no protection
         // talents to go by, which left bots ignoring their threat, opening
         // before them and healing them last. What they stand in says more.
@@ -4594,7 +4609,11 @@ bool PlayerbotAI::IsTellAllowed(Player* player, PlayerbotSecurityLevel securityL
 
 bool PlayerbotAI::TellPlayer(Player* player, std::string text, PlayerbotSecurityLevel securityLevel, bool isPrivate, bool ignoreSilent)
 {
-    if (!TellPlayerNoFacing(player, text, securityLevel, isPrivate, ignoreSilent))
+    // TellPlayer is the direct-reply path (command answers, multi-line
+    // listings). It never suppressed repeats: ignoreSilent used to land in the
+    // noRepeat slot, which is false for nearly every caller. Keep that and
+    // forward ignoreSilent to where it belongs.
+    if (!TellPlayerNoFacing(player, text, securityLevel, isPrivate, false, ignoreSilent))
         return false;
 
     if (player && !player->IsBeingTeleported() && !sServerFacade.isMoving(bot) && !sServerFacade.IsInCombat(bot) && bot->GetMapId() == player->GetMapId() && !bot->IsTaxiFlying() && !bot->IsFlying())

@@ -152,6 +152,15 @@ class PlayerbotPlayerScript : public PlayerScript
                 return false;
 
             roles = uint8(AiFactory::GetPlayerRoles(bot));
+
+            // A feral druid fills damage as well as tank. The talent mapping
+            // reports the feral tree as TANK only, which kept LFT from ever
+            // putting one on a damage slot (and made the recruiter reject a
+            // feral DPS companion).
+            if (bot->getClass() == CLASS_DRUID && (roles & BOT_ROLE_TANK) &&
+                AiFactory::GetTalentSpecTab(bot, 0) == 1)
+                roles |= uint8(BOT_ROLE_DPS);
+
             return true;
         }
 

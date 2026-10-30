@@ -16,6 +16,9 @@ namespace ai
         // Learn every level-appropriate spell category regardless of the
         // optional AiPlayerbot.AutoLearn* configuration switches.
         void LearnLevelAppropriateSpells();
+        // Learn class quest reward spells the bot qualifies for (no-op for
+        // spells it already knows). Used to catch up already levelled bots.
+        void LearnMissingQuestSpells();
 
     private: 
         void LearnSpells(std::ostringstream* out);

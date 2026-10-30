@@ -58,6 +58,7 @@
 #include "Ai/Dungeon/DungeonClear/Util/ChunkedPathfinder.h"
 #include "Ai/Dungeon/DungeonClear/Util/DungeonPathFollower.h"
 #include "Ai/Dungeon/DungeonClear/Util/NavmeshSnap.h"
+#include "Ai/Dungeon/DungeonClear/Util/DcTankForm.h"
 #include "Ai/Dungeon/DungeonClear/Value/DungeonClearLiveBossValue.h"
 
 namespace
@@ -216,6 +217,14 @@ void DcFollowerLifecycle::EnsureTankBearForm(Player* bot)
         return;
     PlayerbotAI* botAI = GET_PLAYERBOT_AI(bot);
     if (!botAI)
+        return;
+    // Only a bot that actually fights as a bear. A cat/balance/resto druid can
+    // hold the drive through a bad election or a stale forced role; shifting it
+    // to bear here would just be undone by its own rotation the moment combat
+    // starts (the live "left bear form at the start of combat and never went
+    // back in"). DcTankForm::EnsureBearForm has always gated on this; this
+    // per-tick refresh did not.
+    if (!DcTankForm::IsBearTank(botAI))
         return;
     // Already shifted into a bear form — nothing to do.
     if (botAI->HasAnyAuraOf(bot, "bear form", "dire bear form", nullptr))

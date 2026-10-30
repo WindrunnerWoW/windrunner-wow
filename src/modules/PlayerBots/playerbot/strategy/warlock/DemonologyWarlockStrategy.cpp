@@ -351,7 +351,9 @@ void DemonologyWarlockPetPvpStrategy::InitNonCombatTriggers(std::list<TriggerNod
 void DemonologyWarlockPetRaidStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     DemonologyWarlockPetStrategy::InitCombatTriggers(triggers);
-    WarlockPetRaidStrategy::InitCombatTriggers(triggers);
+    // No WarlockPetRaidStrategy combat triggers: they only add the in-combat
+    // "summon imp" fallback, and a raid demonology warlock has no pet on
+    // purpose (demonic sacrifice, see InitNonCombatTriggers below).
 }
 
 void DemonologyWarlockPetRaidStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -700,7 +702,7 @@ void DemonologyWarlockPetPveStrategy::InitNonCombatTriggers(std::list<TriggerNod
 
     triggers.push_back(new TriggerNode(
         "no pet",
-        NextAction::array(0, new NextAction("summon felguard", ACTION_NORMAL + 2), NULL)));
+        NextAction::array(0, new NextAction("summon felguard", ACTION_HIGH + 7.5f), NULL)));
 }
 
 void DemonologyWarlockPetPvpStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -716,13 +718,15 @@ void DemonologyWarlockPetPvpStrategy::InitNonCombatTriggers(std::list<TriggerNod
 
     triggers.push_back(new TriggerNode(
         "no pet",
-        NextAction::array(0, new NextAction("summon felguard", ACTION_NORMAL + 2), NULL)));
+        NextAction::array(0, new NextAction("summon felguard", ACTION_HIGH + 7.5f), NULL)));
 }
 
 void DemonologyWarlockPetRaidStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     DemonologyWarlockPetStrategy::InitCombatTriggers(triggers);
-    WarlockPetRaidStrategy::InitCombatTriggers(triggers);
+    // No WarlockPetRaidStrategy combat triggers: they only add the in-combat
+    // "summon imp" fallback, and a raid demonology warlock has no pet on
+    // purpose (demonic sacrifice, see InitNonCombatTriggers below).
 }
 
 void DemonologyWarlockPetRaidStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -1071,7 +1075,7 @@ void DemonologyWarlockPetPveStrategy::InitNonCombatTriggers(std::list<TriggerNod
 
     triggers.push_back(new TriggerNode(
         "no pet",
-        NextAction::array(0, new NextAction("summon felguard", ACTION_NORMAL + 2), NULL)));
+        NextAction::array(0, new NextAction("summon felguard", ACTION_HIGH + 7.5f), NULL)));
 }
 
 void DemonologyWarlockPetPvpStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -1087,13 +1091,15 @@ void DemonologyWarlockPetPvpStrategy::InitNonCombatTriggers(std::list<TriggerNod
 
     triggers.push_back(new TriggerNode(
         "no pet",
-        NextAction::array(0, new NextAction("summon felguard", ACTION_NORMAL + 2), NULL)));
+        NextAction::array(0, new NextAction("summon felguard", ACTION_HIGH + 7.5f), NULL)));
 }
 
 void DemonologyWarlockPetRaidStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
     DemonologyWarlockPetStrategy::InitCombatTriggers(triggers);
-    WarlockPetRaidStrategy::InitCombatTriggers(triggers);
+    // No WarlockPetRaidStrategy combat triggers: they only add the in-combat
+    // "summon imp" fallback, and a raid demonology warlock has no pet on
+    // purpose (demonic sacrifice, see InitNonCombatTriggers below).
 }
 
 void DemonologyWarlockPetRaidStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)

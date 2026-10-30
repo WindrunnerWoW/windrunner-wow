@@ -260,6 +260,10 @@ bool ReactionEngine::Update(uint32 elapsed, bool minimal, bool isStunned, bool& 
 
 bool ReactionEngine::ListenAndExecute(Action* action, Event& event)
 {
+    // Chat commands (co, nc, stay, cast, ...) run as reactions, so the owner
+    // reply scope must be opened here too or companion mode drops the reply.
+    PlayerbotAI::OwnerReplyContextGuard replyContext(ai, IsOwnerReplyEvent(event));
+
     bool actionExecuted = false;
     if (actionExecutionListeners.Before(action, event))
     {

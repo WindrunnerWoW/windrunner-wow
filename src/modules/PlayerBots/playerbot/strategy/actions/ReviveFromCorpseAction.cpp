@@ -1,6 +1,7 @@
 
 #include "playerbot/playerbot.h"
 #include "ReviveFromCorpseAction.h"
+#include "AutoReviveAction.h"
 #include "playerbot/PlayerbotFactory.h"
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/FleeManager.h"
@@ -367,6 +368,12 @@ bool FindCorpseAction::isUseful()
     if (bot->InBattleGround())
         return false;
 
+    // A companion that died in a dungeon waits there for a rezzer or auto
+    // revive, which brings it to its master - it never corpse-runs back in
+    // on its own. The "corpse run" command still overrides.
+    if (AutoReviveAction::ShouldWaitForAutoRevive(bot) && !AI_VALUE(bool, "corpse run"))
+        return false;
+
     if (trackedCorpseGuid != corpse->GetObjectGuid() || trackedCorpseGhostTime != corpse->GetGhostTime())
     {
         ResetFailureState();
@@ -493,6 +500,11 @@ bool SpiritHealerAction::Execute(Event& event)
 bool SpiritHealerAction::isUseful()
 {
     if (bot->InBattleGround())
+        return false;
+
+    // Same reason as FindCorpseAction: a companion that died in a dungeon
+    // must not walk to a spirit healer either.
+    if (AutoReviveAction::ShouldWaitForAutoRevive(bot) && !AI_VALUE(bool, "corpse run"))
         return false;
 
     return bot->HasFlag(PLAYER_FLAGS, PLAYER_FLAGS_GHOST);
