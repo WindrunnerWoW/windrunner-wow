@@ -1,5 +1,6 @@
 #pragma once
 #include "playerbot/strategy/triggers/GenericTriggers.h"
+#include "Group/Group.h"
 
 namespace ai 
 {
@@ -436,5 +437,42 @@ namespace ai
     {
     public:
         ClearcastingTrigger(PlayerbotAI* ai) : HasAuraTrigger(ai, "clearcasting") {}
+    };
+
+    // Self-heal triggers for a bear: Regrowth and Healing Touch need caster form,
+    // and a bear that drops form mid-pull loses its armor and threat. Only worth
+    // it when nobody else in the group can heal it.
+    class SoloLowHealthTrigger : public LowHealthTrigger
+    {
+    public:
+        SoloLowHealthTrigger(PlayerbotAI* ai, std::string name = "solo low health",
+            float value = sPlayerbotAIConfig.lowHealth, float minValue = sPlayerbotAIConfig.criticalHealth) :
+            LowHealthTrigger(ai, name, value, minValue) {}
+
+        virtual bool IsActive() override { return LowHealthTrigger::IsActive() && !HasOtherHealer(); }
+
+    protected:
+        bool HasOtherHealer()
+        {
+            Group* group = bot->GetGroup();
+            if (!group)
+                return false;
+
+            for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
+            {
+                Player* member = ref->getSource();
+                if (member && member != bot && member->IsAlive() && PlayerbotAI::IsHeal(member))
+                    return true;
+            }
+
+            return false;
+        }
+    };
+
+    class SoloCriticalHealthTrigger : public SoloLowHealthTrigger
+    {
+    public:
+        SoloCriticalHealthTrigger(PlayerbotAI* ai) :
+            SoloLowHealthTrigger(ai, "solo critical health", sPlayerbotAIConfig.criticalHealth, 0) {}
     };
 }

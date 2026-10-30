@@ -130,7 +130,20 @@ int32 MoveSplineInit::Launch()
     unit.m_movementInfo.SetMovementFlags((MovementFlags)moveFlags);
     move_spline.SetMovementOrigin(movementType);
     move_spline.Initialize(args);
-    
+
+    // A player's walk/run mode is the player's own state, not the spline's: the
+    // client is told to restore it below, so the server flag must follow, or the
+    // next spline that doesn't set run explicitly (the ctor mixes this flag in)
+    // inherits walk from a one-off close-range follow step. Speed is already
+    // baked into args.velocity above, so this spline is unaffected.
+    if (unit.GetTypeId() == TYPEID_PLAYER && !args.flags.done)
+    {
+        if (oldMoveFlags & MOVEFLAG_WALK_MODE)
+            unit.m_movementInfo.AddMovementFlag(MOVEFLAG_WALK_MODE);
+        else
+            unit.m_movementInfo.RemoveMovementFlag(MOVEFLAG_WALK_MODE);
+    }
+
     WorldPacket data(SMSG_MONSTER_MOVE, 64);
     data << unit.GetPackGUID();
 

@@ -106,6 +106,13 @@ public:
     // False for the leader itself and off runs. Pass any group member.
     static bool IsLeaderDroppingInHole(Player* bot);
 
+    // True while the run's active event step is a PLANNED vertical move - a
+    // DropInHole, a ballistic Jump or a TeleportParty - for ANY member,
+    // leader included. The fall guard (DcStrandedRecovery::FallGuard) stands
+    // down for these: a scripted drop is exactly "fell far below the last
+    // safe spot", on purpose.
+    static bool IsScriptedDropActive(Player* bot);
+
     // The live NPC the group is currently escorting, or nullptr when no escort is
     // active. Resolves `bot`'s elected leader, confirms its active anchored-event
     // step is an EscortCreature on an enabled, unpaused run, and returns that

@@ -125,6 +125,9 @@ namespace ai
             creators["enemy fifteen yards"] = [](PlayerbotAI* ai) { return new EnemyInRangeTrigger(ai, "enemy fifteen yards", 15.0f); };
             creators["enemy ten yards"] = [](PlayerbotAI* ai) { return new EnemyInRangeTrigger(ai, "enemy ten yards", 10.0f); };
             creators["enemy five yards"] = [](PlayerbotAI* ai) { return new EnemyInRangeTrigger(ai, "enemy five yards", 5.0f); };
+            // Self-defence variants: only fire when the close enemy is attacking the bot.
+            creators["enemy ten yards targeting bot"] = [](PlayerbotAI* ai) { return new EnemyInRangeTrigger(ai, "enemy ten yards targeting bot", 10.0f, false, true); };
+            creators["enemy five yards targeting bot"] = [](PlayerbotAI* ai) { return new EnemyInRangeTrigger(ai, "enemy five yards targeting bot", 5.0f, false, true); };
             creators["wait for attack safe distance"] = [](PlayerbotAI* ai) { return new WaitForAttackSafeDistanceTrigger(ai); };
             creators["enemy player ten yards"] = [](PlayerbotAI* ai) { return new EnemyInRangeTrigger(ai, "enemy player ten yards", 10.0f, true); };
             creators["combo points available"] = [](PlayerbotAI* ai) { return new ComboPointsAvailableTrigger(ai); };
@@ -137,6 +140,7 @@ namespace ai
             creators["corpse near"] = [](PlayerbotAI* ai) { return new CorpseNearTrigger(ai); };
             creators["party member dead"] = [](PlayerbotAI* ai) { return new PartyMemberDeadTrigger(ai); };
             creators["no pet"] = [](PlayerbotAI* ai) { return new NoPetTrigger(ai); };
+            creators["pet taunt autocast"] = [](PlayerbotAI* ai) { return new PetTauntAutocastTrigger(ai); };
             creators["has attackers"] = [](PlayerbotAI* ai) { return new HasAttackersTrigger(ai); };
             creators["no possible targets"] = [](PlayerbotAI* ai) { return new NoPossibleTargetsTrigger(ai); };
             creators["possible adds"] = [](PlayerbotAI* ai) { return new PossibleAddsTrigger(ai); };

@@ -621,6 +621,35 @@ bool DcLeaderSignal::IsLeaderDroppingInHole(Player* bot)
     return ev->steps[prog.stepIndex].kind == EventStepKind::DropInHole;
 }
 
+bool DcLeaderSignal::IsScriptedDropActive(Player* bot)
+{
+    Player* owner = FindRunOwner(bot);
+    if (!owner)
+        return false;
+    PlayerbotAI* ownerAI = GET_PLAYERBOT_AI(owner);
+    if (!ownerAI)
+        return false;
+
+    AiObjectContext* ctx = ownerAI->GetAiObjectContext();
+    std::optional<DungeonBossInfo> const next =
+        ctx->GetValue<std::optional<DungeonBossInfo>>(DcKey::NextDungeonBoss)->Get();
+    if (!next.has_value() || next->kind != DungeonAnchorKind::Objective || !next->eventId)
+        return false;
+
+    DungeonEvent const* ev = DungeonEventRegistry::Find(next->mapId, next->eventId);
+    if (!ev)
+        return false;
+
+    DungeonEventProgress const& prog =
+        ctx->GetValue<DungeonEventProgress&>(DcKey::EventProgress)->Get();
+    if (prog.eventId != ev->id || prog.stepIndex >= ev->steps.size())
+        return false;
+
+    EventStepKind const kind = ev->steps[prog.stepIndex].kind;
+    return kind == EventStepKind::DropInHole || kind == EventStepKind::Jump ||
+           kind == EventStepKind::TeleportParty;
+}
+
 Creature* DcLeaderSignal::GetLeaderEscortee(Player* bot)
 {
     if (!bot)

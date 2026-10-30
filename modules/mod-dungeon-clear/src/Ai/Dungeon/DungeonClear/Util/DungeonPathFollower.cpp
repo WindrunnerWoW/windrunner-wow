@@ -11,6 +11,7 @@
 
 #include "Map.h"
 #include "ModelIgnoreFlags.h"
+#include "PathGenerator.h"
 #include "Player.h"
 
 namespace
@@ -466,6 +467,37 @@ std::vector<G3D::Vector3> DungeonPathFollower::BuildSplineWindow(Player* bot,
     window.push_back(G3D::Vector3(bot->GetPositionX(), bot->GetPositionY(), bot->GetPositionZ()));
 
     AppendWindowPoints(path, state.segmentIdx, state.pointIdx, maxYards, window);
+
+    // The FIRST leg - live position to the cursor point - is the one stretch of
+    // the window the route builder never saw: the bot may have been knocked,
+    // bumped or dragged off the line since. Route it instead of trusting a
+    // straight chord. A complete navmesh path splices its corners in; without
+    // one the leg is only kept if the bot can see the point, and otherwise the
+    // window collapses to the seed so the caller's routed single-hop fallback
+    // takes over.
+    constexpr float FIRST_LEG_ROUTE_MIN_YD = 2.0f;
+    if (window.size() >= 2 && (window[1] - window[0]).length() > FIRST_LEG_ROUTE_MIN_YD)
+    {
+        G3D::Vector3 const first = window[1];
+        PathGenerator gen(bot);
+        gen.CalculatePath(first.x, first.y, first.z, /*forceDest*/ false);
+        uint32 const type = gen.GetPathType();
+        Movement::PointsArray const& pts = gen.GetPath();
+        bool const routed = (type & PATHFIND_NORMAL) &&
+                            !(type & (PATHFIND_NOPATH | PATHFIND_SHORTCUT |
+                                      PATHFIND_INCOMPLETE | PATHFIND_NOT_USING_PATH));
+        if (routed && pts.size() > 2)
+        {
+            // pts[0] is the live position, pts.back() ~ `first`: splice the corners.
+            window.insert(window.begin() + 1, pts.begin() + 1, pts.end() - 1);
+            if (window.size() > MAX_SPLINE_WINDOW_POINTS)
+                window.resize(MAX_SPLINE_WINDOW_POINTS);
+        }
+        else if (!routed && !BotCanSee(bot, first))
+        {
+            window.resize(1);
+        }
+    }
     return window;
 }
 

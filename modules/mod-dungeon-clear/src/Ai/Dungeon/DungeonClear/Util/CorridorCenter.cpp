@@ -141,7 +141,9 @@ namespace
                     continue;
 
                 G3D::Vector3 avg = src[i - 1] * 0.25f + src[i] * 0.5f + src[i + 1] * 0.25f;
-                bot->UpdateAllowedPositionZ(avg.x, avg.y, avg.z);
+                // Bounded Z refresh: a raw UpdateAllowedPositionZ here can drop
+                // the averaged point onto the floor below a bridge or balcony.
+                DungeonClearGeometry::ClampedAllowedZ(bot, avg);
                 // On-mesh AND sightline-preserving: an average that drifts the
                 // point across a doorjamb stays on the navmesh but would clip
                 // the frame in the VMAP, so screen it against both neighbours
@@ -250,7 +252,7 @@ void CorridorCenter::Center(dtNavMeshQuery const* query, dtQueryFilter const* fi
         for (int attempt = 0; attempt < 3; ++attempt)
         {
             G3D::Vector3 test = cand;
-            bot->UpdateAllowedPositionZ(test.x, test.y, test.z);
+            DungeonClearGeometry::ClampedAllowedZ(bot, test);   // bounded, see above
             if (OnMesh(query, filter, test) &&
                 ChordClear(bot, pts[i - 1], test) &&
                 ChordClear(bot, test, pts[i + 1]))

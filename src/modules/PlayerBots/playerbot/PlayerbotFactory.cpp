@@ -14,6 +14,7 @@
 #include "playerbot/ServerFacade.h"
 #include "playerbot/AiFactory.h"
 #include "playerbot/strategy/actions/AutoLearnSpellAction.h"
+#include "playerbot/strategy/PetTauntAutocast.h"
 #include "Guild/GuildMgr.h"
 
 #ifndef MANGOSBOT_ZERO
@@ -714,6 +715,13 @@ void PlayerbotFactory::InitPet()
         uint32 spellId = itr->first;
         if(IsPassiveSpell(spellId))
             continue;
+
+        // Taunts only autocast while solo; grouped pets must not steal aggro.
+        if (PetTauntAutocast::IsPetTauntSpell(spellId))
+        {
+            pet->ToggleAutocast(spellId, PetTauntAutocast::WantAutocast(bot));
+            continue;
+        }
 
         pet->ToggleAutocast(spellId, true);
     }

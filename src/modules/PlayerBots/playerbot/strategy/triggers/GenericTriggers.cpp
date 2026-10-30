@@ -6,6 +6,8 @@
 #include "playerbot/strategy/values/PositionValue.h"
 #include "playerbot/strategy/values/AoeValues.h"
 #include "playerbot/strategy/values/GroupCcTargetReservation.h"
+#include "playerbot/strategy/InstanceSafety.h"
+#include "playerbot/strategy/PetTauntAutocast.h"
 
 #include <regex>
 
@@ -90,8 +92,18 @@ bool HasAggroTrigger::IsActive()
     return AI_VALUE2(bool, "has aggro", "current target");
 }
 
+bool PetTauntAutocastTrigger::IsActive()
+{
+    return PetTauntAutocast::Sync(bot, false);
+}
+
 bool PanicTrigger::IsActive()
 {
+    // A fleeing tank drags the pack through the group and a fleeing healer
+    // stops healing; in instances both must hold their ground.
+    if (InstanceSafety::IsGroupedOnInstanceMap(bot) && (ai->IsTank(bot) || ai->IsHeal(bot)))
+        return false;
+
     return !ai->IsInPvp() &&
            AI_VALUE2(uint8, "health", "self target") < sPlayerbotAIConfig.criticalHealth &&
 		   (!AI_VALUE2(bool, "has mana", "self target") || 
@@ -353,10 +365,34 @@ bool AoeTrigger::IsActive()
         return false;
 
     // Never AoE a pack that contains a crowd-controlled mob.
+    float minX = 0.0f, maxX = 0.0f, minY = 0.0f, maxY = 0.0f;
+    bool first = true;
     for (const ObjectGuid& guid : aoeEnemies)
     {
         Unit* unit = ai->GetUnit(guid);
-        if (unit && PlayerbotAI::HasBreakableCc(unit))
+        if (!unit)
+            continue;
+
+        if (PlayerbotAI::HasBreakableCc(unit))
+            return false;
+
+        if (first || unit->GetPositionX() < minX) minX = unit->GetPositionX();
+        if (first || unit->GetPositionX() > maxX) maxX = unit->GetPositionX();
+        if (first || unit->GetPositionY() < minY) minY = unit->GetPositionY();
+        if (first || unit->GetPositionY() > maxY) maxY = unit->GetPositionY();
+        first = false;
+    }
+
+    // Grouped in an instance: a ground or point-blank AoE that also reaches an
+    // idle pack pulls it. Melee-range triggers drive PBAoE centred on the bot;
+    // ranged ones drive ground AoE centred on the pack (as "aoe position").
+    if (!first && InstanceSafety::IsActive(bot))
+    {
+        const bool pointBlank = range <= MELEE_AOE_REACH;
+        const float centerX = pointBlank ? bot->GetPositionX() : (minX + maxX) / 2;
+        const float centerY = pointBlank ? bot->GetPositionY() : (minY + maxY) / 2;
+        const float aoeReach = pointBlank ? 10.0f : 8.0f; // Arcane Explosion/Consecration vs Blizzard/Rain of Fire/Volley
+        if (InstanceSafety::HasIdleHostileNear(ai, centerX, centerY, aoeReach + InstanceSafety::IDLE_PACK_MARGIN))
             return false;
     }
 
@@ -754,9 +790,10 @@ bool HasCcTargetTrigger::IsActive()
 
         // In dungeons the group raid marker is the shared CC assignment. This
         // prevents every controller from independently selecting the same add.
-        // If no CC icon is currently assigned, allow the value-layer fallback to
-        // pick one safe target instead of suppressing CC entirely. Fallback
-        // targets are claimed with a short-lived group reservation.
+        // CcTargetValue never picks an unmarked add: without an explicit RTI CC
+        // target it only considers mobs carrying the automatic CC markers
+        // (moon/square), and those picks are claimed with a short-lived group
+        // reservation so two controllers do not take the same marked add.
         Unit* rtiCcTarget = AI_VALUE(Unit*, "rti cc target");
         if (bot->GetMap() && bot->GetMap()->IsDungeon() && !bot->GetMap()->IsRaid())
         {

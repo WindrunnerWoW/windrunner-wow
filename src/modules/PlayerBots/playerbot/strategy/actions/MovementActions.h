@@ -72,13 +72,17 @@ namespace ai
         // mod-playerbots carries four more arguments on this call. Three are
         // accepted and dropped - exact_waypoint, lessDelay and backwards have no
         // counterpart in this generator - and the priority goes the way every
-        // other priority here goes, see MovementPriority. normal_only maps onto
-        // noPath, which is the same request: do not route, go straight.
+        // other priority here goes, see MovementPriority. normal_only is the
+        // opposite of noPath: route, and refuse the move unless the navmesh
+        // gives a complete (PATHFIND_NORMAL) path.
         bool MoveTo(uint32 mapId, float x, float y, float z, bool idle, bool react,
                     bool normal_only, bool /*exact_waypoint*/,
                     MovementPriority /*priority*/, bool /*lessDelay*/ = false,
-                    bool /*backwards*/ = false)
-        { return MoveTo(mapId, x, y, z, idle, react, normal_only); }
+                    bool /*backwards*/ = false);
+
+        // True on an instance map, where a straight (unrouted) leg is what
+        // walks a bot through walls and off ledges.
+        bool IsOnDungeonMap() const;
 
         // mod-playerbots refuses a move to a spot the bot was just sent to.
         // Nothing here records that, so nothing is a duplicate. False keeps the
@@ -142,6 +146,14 @@ namespace ai
         bool IsValidPosition(const WorldPosition& position, const WorldPosition& visibleFromPosition);
         bool IsHazardNearPosition(const WorldPosition& position, HazardPosition* outHazard = nullptr);
         bool GeneratePathAvoidingHazards(std::vector<WorldPosition>& movePath);
+
+        // Fleeing-target leash for melee in instances: a low-HP mob running
+        // for help drags whoever chases it into the next pack. The origin is
+        // where this bot stood when it first saw the target flee.
+        bool IsFleeLeashBroken(Unit* target);
+        ObjectGuid fleeLeashTarget;
+        float fleeLeashX = 0.0f;
+        float fleeLeashY = 0.0f;
     };
 
     class FleeAction : public MovementAction

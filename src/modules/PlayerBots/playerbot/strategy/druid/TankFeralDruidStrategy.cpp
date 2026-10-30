@@ -100,17 +100,16 @@ void TankFeralDruidStrategy::InitDeadTriggers(std::list<TriggerNode*>& triggers)
 
 void TankFeralDruidPveStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
+    // No rebirth, and no caster heals while a healer is around: both need caster
+    // form, and a bear that drops form mid-fight loses its armor and the mobs.
+    // Frenzied regeneration (TankFeralDruidStrategy) covers the grouped case.
     triggers.push_back(new TriggerNode(
-        "rebirth",
-        NextAction::array(0, new NextAction("rebirth", ACTION_EMERGENCY), NULL)));
-
-    triggers.push_back(new TriggerNode(
-        "critical health",
+        "solo critical health",
         NextAction::array(0, new NextAction("regrowth", ACTION_CRITICAL_HEAL + 1),
                              new NextAction("healing touch", ACTION_CRITICAL_HEAL), NULL)));
 
     triggers.push_back(new TriggerNode(
-        "low health",
+        "solo low health",
         NextAction::array(0, new NextAction("regrowth", ACTION_MEDIUM_HEAL), NULL)));
 
     TankFeralDruidStrategy::InitCombatTriggers(triggers);
@@ -141,17 +140,14 @@ void TankFeralDruidPveStrategy::InitDeadTriggers(std::list<TriggerNode*>& trigge
 
 void TankFeralDruidPvpStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
+    // See TankFeralDruidPveStrategy: stay in form unless nobody else heals.
     triggers.push_back(new TriggerNode(
-        "rebirth",
-        NextAction::array(0, new NextAction("rebirth", ACTION_EMERGENCY), NULL)));
-
-    triggers.push_back(new TriggerNode(
-        "critical health",
+        "solo critical health",
         NextAction::array(0, new NextAction("regrowth", ACTION_CRITICAL_HEAL + 1),
                              new NextAction("healing touch", ACTION_CRITICAL_HEAL), NULL)));
 
     triggers.push_back(new TriggerNode(
-        "low health",
+        "solo low health",
         NextAction::array(0, new NextAction("regrowth", ACTION_MEDIUM_HEAL), NULL)));
 
     TankFeralDruidStrategy::InitCombatTriggers(triggers);
@@ -267,9 +263,10 @@ void TankFeralDruidBuffStrategy::InitCombatTriggers(std::list<TriggerNode*>& tri
 {
     DruidBuffStrategy::InitCombatTriggers(triggers);
 
+    // Above everything else: no other combat action is worth fighting out of form for.
     triggers.push_back(new TriggerNode(
         "bear form",
-        NextAction::array(0, new NextAction("dire bear form", ACTION_MOVE + 9), NULL)));
+        NextAction::array(0, new NextAction("dire bear form", ACTION_EMERGENCY + 1), NULL)));
 
     triggers.push_back(new TriggerNode(
         "enrage",
@@ -373,7 +370,8 @@ void TankFeralDruidBoostRaidStrategy::InitNonCombatTriggers(std::list<TriggerNod
 
 void TankFeralDruidCcStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
-    DruidCcStrategy::InitCombatTriggers(triggers);
+    // Skips DruidCcStrategy on purpose: hibernate is cast from caster form.
+    CcStrategy::InitCombatTriggers(triggers);
 
     triggers.push_back(new TriggerNode(
         "bash",
@@ -427,7 +425,13 @@ void TankFeralDruidCcRaidStrategy::InitNonCombatTriggers(std::list<TriggerNode*>
 
 void TankFeralDruidCureStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
 {
-    DruidCureStrategy::InitCombatTriggers(triggers);
+    // Skips DruidCureStrategy on purpose: its cures all shift to caster form, and
+    // its "rooted" answer is leaving form. A shift into bear breaks roots as well.
+    CureStrategy::InitCombatTriggers(triggers);
+
+    triggers.push_back(new TriggerNode(
+        "rooted",
+        NextAction::array(0, new NextAction("dire bear form", ACTION_DISPEL), NULL)));
 }
 
 void TankFeralDruidCureStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)

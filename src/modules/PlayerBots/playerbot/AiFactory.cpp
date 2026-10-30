@@ -160,9 +160,29 @@ AiObjectContext* AiFactory::createAiObjectContext(Player* player, PlayerbotAI* a
     return new AiObjectContext(ai);
 }
 
+BotRoles AiFactory::GetForcedRoleBits(uint8 forcedRole)
+{
+    // Same reading as PlayerbotAI::ResetStrategies: 1 tank, 2 heal, anything
+    // else set means dps.
+    if (!forcedRole)
+        return BOT_ROLE_NONE;
+    if (forcedRole == BOT_ROLE_TANK)
+        return BOT_ROLE_TANK;
+    if (forcedRole == BOT_ROLE_HEALER)
+        return BOT_ROLE_HEALER;
+    return BOT_ROLE_DPS;
+}
+
 int AiFactory::GetPlayerSpecTab(const Player* bot)
 {
+    PlayerbotAI* ai = GetBotAI(bot);
+    return GetTalentSpecTab(bot, ai ? ai->GetForcedRole() : 0);
+}
+
+int AiFactory::GetTalentSpecTab(const Player* bot, uint8 forcedRole)
+{
     std::map<uint32, int32> tabs = GetPlayerSpecTabs(bot);
+    BotRoles const role = GetForcedRoleBits(forcedRole);
 
     if (bot->GetLevel() >= 10 && ((tabs[0] + tabs[1] + tabs[2]) > 0))
     {
@@ -175,6 +195,18 @@ int AiFactory::GetPlayerSpecTab(const Player* bot)
                 max = tabs[i];
             }
         }
+
+        // A tie used to go to the lowest tab, whatever the bot was there for.
+        // With a role assigned, the tied tree that fills it wins instead.
+        if (role != BOT_ROLE_NONE && !(GetPlayerRoles(bot->getClass(), tab) & role))
+        {
+            for (uint32 i = 0; i < uint32(3); i++)
+            {
+                if (tabs[i] == max && (GetPlayerRoles(bot->getClass(), i) & role))
+                    return i;
+            }
+        }
+
         return tab;
     }
     else
@@ -199,8 +231,48 @@ int AiFactory::GetPlayerSpecTab(const Player* bot)
             tab = 1;
             break;
         }
+
+        // No talents at all is a three-way tie. The class default above sent
+        // every talentless druid to Balance - wrath spam on the tank slot.
+        if (role != BOT_ROLE_NONE && !(GetPlayerRoles(bot->getClass(), tab) & role))
+        {
+            for (uint32 i = 0; i < uint32(3); i++)
+            {
+                if (GetPlayerRoles(bot->getClass(), i) & role)
+                    return i;
+            }
+        }
+
         return tab;
     }
+}
+
+int AiFactory::GetRoleSpecTab(const Player* player, uint8 forcedRole)
+{
+    int const tab = GetTalentSpecTab(player, forcedRole);
+    BotRoles const role = GetForcedRoleBits(forcedRole);
+    if (role == BOT_ROLE_NONE)
+        return tab;
+
+    uint8 const cls = player->getClass();
+    if (GetPlayerRoles(cls, tab) & role)
+        return tab;
+
+    // Feral fills dps as well as tank: the strategy code below picks cat or
+    // bear from the role, so a feral druid sent as dps stays feral.
+    if (cls == CLASS_DRUID && tab == 1 && role == BOT_ROLE_DPS)
+        return tab;
+
+    // The role outranks the talents for strategy selection: a balance druid
+    // put on the heal slot heals, a holy paladin on the tank slot tanks. A
+    // class that cannot fill the role at all keeps its own tree.
+    for (uint32 i = 0; i < uint32(3); i++)
+    {
+        if (GetPlayerRoles(cls, i) & role)
+            return i;
+    }
+
+    return tab;
 }
 
 std::map<uint32, int32> AiFactory::GetPlayerSpecTabs(const Player* bot)
@@ -358,12 +430,16 @@ BotRoles AiFactory::GetPlayerRoles(const Player* player)
     // warrior who happened to stand in defensive stance would have been handed
     // the tank slot with a fury build, while a feral druid was already
     // recognised through its talents. The aura check is gone. The tree decides.
-    return GetPlayerRoles(player->getClass(), GetPlayerSpecTab(player));
+    //
+    // The tree alone, too: no forced-role tie-breaking here. Role assignment asks
+    // this to find out whether the talents contradict the role it is handing out.
+    return GetPlayerRoles(player->getClass(), GetTalentSpecTab(player, 0));
 }
 
 void AiFactory::AddDefaultCombatStrategies(Player* player, PlayerbotAI* const facade, Engine* combatEngine)
 {
-    int tab = GetPlayerSpecTab(player);
+    uint8 const forcedRole = facade->GetForcedRole();
+    int tab = GetRoleSpecTab(player, forcedRole);
 
     combatEngine->addStrategies("mount", NULL);
     combatEngine->addStrategy("avoid mobs");
@@ -523,7 +599,7 @@ void AiFactory::AddDefaultCombatStrategies(Player* player, PlayerbotAI* const fa
                 // wandering the world. It is only a proxy for having gone down
                 // the bear side of the tree, and a poor one below the level that
                 // reaches it.
-                uint8 const role = facade->GetForcedRole();
+                BotRoles const role = GetForcedRoleBits(forcedRole);
 
                 bool const tanking = role ? (role & BOT_ROLE_TANK) != 0
                                           : (player->HasSpell(16961) || player->HasSpell(16958));
@@ -650,7 +726,7 @@ void AiFactory::AddDefaultCombatStrategies(Player* player, PlayerbotAI* const fa
                 combatEngine->removeStrategy("close");
             }
 
-            if (player->getClass() == CLASS_DRUID && tab == 1 && urand(0, 100) > 50 && player->GetLevel() >= 20)
+            if (player->getClass() == CLASS_DRUID && tab == 1 && !forcedRole && urand(0, 100) > 50 && player->GetLevel() >= 20)
             {
                 if (player->HasSpell(16961) || player->HasSpell(16958))
                 {
@@ -708,35 +784,8 @@ void AiFactory::AddDefaultCombatStrategies(Player* player, PlayerbotAI* const fa
     }
 
     // High-impact combat defaults. Applied after ChangeStrategy so historical
-    // conf entries like `-threat` cannot silently strip them. Grouped bots only:
-    // solo grind should keep full aggression.
-    if (!player->InBattleGround() && (player->GetGroup() || facade->HasRealPlayerMaster()))
-    {
-        combatEngine->addStrategy("avoid aoe");
-        combatEngine->addStrategy("potions");
-
-        if (facade->ContainsStrategy(STRATEGY_TYPE_HEAL))
-        {
-            combatEngine->addStrategy("heal interrupt");
-            combatEngine->addStrategy("conserve mana");
-            if (sPlayerbotAIConfig.autoSaveMana)
-                combatEngine->addStrategy("save mana");
-            combatEngine->addStrategy("preheal");
-        }
-        else if (facade->ContainsStrategy(STRATEGY_TYPE_TANK))
-        {
-            combatEngine->addStrategy("tank face");
-        }
-        else
-        {
-            combatEngine->addStrategy("threat");
-            combatEngine->addStrategy("cast time");
-            // Let the tank grab initial threat before DPS opens.
-            combatEngine->addStrategy("wait for attack");
-            if (player->GetPower(POWER_MANA) > 0 || player->GetMaxPower(POWER_MANA) > 0)
-                combatEngine->addStrategy("conserve mana");
-        }
-    }
+    // conf entries like `-threat` cannot silently strip them.
+    AddRoleStrategies(player, facade, combatEngine);
 
 #ifdef MANGOSBOT_ZERO
     // Conf or leftover strategies can still enable healer off-DPS; strip it in
@@ -833,6 +882,61 @@ void AiFactory::AddDefaultCombatStrategies(Player* player, PlayerbotAI* const fa
 
 }
 
+void AiFactory::AddRoleStrategies(Player* player, PlayerbotAI* const facade, Engine* combatEngine, Engine* nonCombatEngine, bool reapply)
+{
+    // Grouped bots only: solo grind should keep full aggression.
+    if (player->InBattleGround() || !(player->GetGroup() || facade->HasRealPlayerMaster()))
+        return;
+
+    // Asked of the engine itself, not the facade: while the bot is being built
+    // the facade has no engines yet, so every bot - healers and tanks too - used
+    // to get the dps set. When ResetStrategies runs this again after applying
+    // a forced role, clear whatever the talent-based pass picked first.
+    if (reapply)
+    {
+        for (const char* name : { "heal interrupt", "conserve mana", "save mana", "preheal",
+                                  "tank face", "threat", "cast time", "wait for attack" })
+        {
+            combatEngine->removeStrategy(name);
+        }
+    }
+
+    combatEngine->addStrategy("avoid aoe");
+    combatEngine->addStrategy("potions");
+
+    if (combatEngine->ContainsStrategy(STRATEGY_TYPE_HEAL))
+    {
+        combatEngine->addStrategy("heal interrupt");
+        combatEngine->addStrategy("conserve mana");
+        if (sPlayerbotAIConfig.autoSaveMana)
+            combatEngine->addStrategy("save mana");
+        combatEngine->addStrategy("preheal");
+
+        // "dps assist" is a dps-type strategy: it had grouped healers counted
+        // as dps by IsDps() and chasing assist targets between heals. Kept only
+        // where the healer is allowed to off-dps, which needs a target.
+        if (!combatEngine->HasStrategy("offdps") || !AllowHealerOffdps(player))
+        {
+            combatEngine->removeStrategy("dps assist");
+            if (nonCombatEngine)
+                nonCombatEngine->removeStrategy("dps assist");
+        }
+    }
+    else if (combatEngine->ContainsStrategy(STRATEGY_TYPE_TANK))
+    {
+        combatEngine->addStrategy("tank face");
+    }
+    else
+    {
+        combatEngine->addStrategy("threat");
+        combatEngine->addStrategy("cast time");
+        // Let the tank grab initial threat before DPS opens.
+        combatEngine->addStrategy("wait for attack");
+        if (player->GetPower(POWER_MANA) > 0 || player->GetMaxPower(POWER_MANA) > 0)
+            combatEngine->addStrategy("conserve mana");
+    }
+}
+
 Engine* AiFactory::createCombatEngine(Player* player, PlayerbotAI* const facade, AiObjectContext* AiObjectContext)
 {
 	Engine* engine = new Engine(facade, AiObjectContext, BotState::BOT_STATE_COMBAT);
@@ -842,7 +946,8 @@ Engine* AiFactory::createCombatEngine(Player* player, PlayerbotAI* const facade,
 
 void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const facade, Engine* nonCombatEngine)
 {
-    const int tab = GetPlayerSpecTab(player);
+    uint8 const forcedRole = facade->GetForcedRole();
+    const int tab = GetRoleSpecTab(player, forcedRole);
     switch (player->getClass())
     {
         case CLASS_PRIEST:
@@ -988,7 +1093,13 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
 
             if (tab == 1)
             {
-                if (player->HasSpell(16961) || player->HasSpell(16958))
+                // Same choice as the combat engine: an assigned role decides,
+                // Primal Fury is only the fallback.
+                BotRoles const role = GetForcedRoleBits(forcedRole);
+                bool const tanking = role ? (role & BOT_ROLE_TANK) != 0
+                                          : (player->HasSpell(16961) || player->HasSpell(16958));
+
+                if (tanking)
                 {
                     nonCombatEngine->addStrategies("tank feral", "tank assist", NULL);
                 }
@@ -1063,6 +1174,16 @@ void AiFactory::AddDefaultNonCombatStrategies(Player* player, PlayerbotAI* const
 
     if (sPlayerbotAIConfig.autoSaveMana && PlayerbotAI::IsHeal(player))
         nonCombatEngine->addStrategy("save mana");
+
+    // Grouped healers: no "dps assist" (see AddRoleStrategies). Out of combat
+    // it is what picks the next target after a kill, so solo healers and those
+    // allowed to off-dps keep it.
+    if ((GetPlayerRoles(player->getClass(), tab) & BOT_ROLE_HEALER) && player->GetLevel() >= 10 &&
+        !player->InBattleGround() && (player->GetGroup() || facade->HasRealPlayerMaster()) &&
+        (!sPlayerbotAIConfig.enableOffSpecStrategies || !AllowHealerOffdps(player)))
+    {
+        nonCombatEngine->removeStrategy("dps assist");
+    }
 
     if(sPlayerbotAIConfig.llmEnabled == 2)
         nonCombatEngine->addStrategy("ai chat");

@@ -33,12 +33,15 @@ namespace DcTankForm
         if (!bot || bot->getClass() != CLASS_DRUID)
             return false;
 
-        // The "bear" combat strategy IS the definition of "fights as a bear" —
-        // it is what AiFactory hands a feral-tank druid, and it owns both the
-        // bear rotation and the (combat-only) shift trigger this gate exists to
-        // pre-empt. A cat/balance/resto druid holding the DC drive is left
-        // alone: shifting it to bear would break its rotation outright.
-        if (!botAI->HasStrategy("bear", BOT_STATE_COMBAT))
+        // The feral tank combat strategy IS the definition of "fights as a
+        // bear" — it is what AiFactory hands a feral-tank druid, and it owns
+        // both the bear rotation and the (combat-only) shift trigger this gate
+        // exists to pre-empt. A cat/balance/resto druid holding the DC drive is
+        // left alone: shifting it to bear would break its rotation outright.
+        // Engines key strategies by getName(): "bear" and "tank" are only
+        // aliases that create the "tank feral" placeholder, so asking for
+        // "bear" never matched and the pre-pull shift never happened.
+        if (!botAI->HasStrategy("tank feral", BOT_STATE_COMBAT))
             return false;
 
         return botAI->HasSpell(kDireBear) || botAI->HasSpell(kBear);

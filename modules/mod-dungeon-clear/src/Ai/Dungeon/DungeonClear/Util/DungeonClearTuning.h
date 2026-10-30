@@ -409,6 +409,12 @@ constexpr uint32 DC_PARTY_YIELD_DEBOUNCE_TICKS = 3;
 // one. Releasing reopens the travel window the ratchet above deliberately
 // closes, so keep this long enough that it stays a last resort.
 constexpr uint32 DC_PARTY_YIELD_MAX_MS = 60000;
+// The same yield's HARD cap while the hold is one the party is visibly working
+// through - a member is dead on the map, or a healer sits under the mana floor
+// still drinking / regenerating. Releasing at 60s there walks the tank into the
+// next pack with an empty healer or a man short; this only exists so a corpse
+// nobody can raise, or a drink loop that never ends, still cannot freeze the run.
+constexpr uint32 DC_PARTY_YIELD_HARD_MAX_MS = 180000;
 
 // How long without an off-path rebuild before the rung-4 budget counts as a
 // fresh episode. Shorter than this and we are still in the same wedge: the

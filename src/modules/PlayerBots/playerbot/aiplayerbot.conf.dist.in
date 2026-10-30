@@ -1078,6 +1078,13 @@ AiPlayerbot.RpgDistance = 200
 # Bot can flee for enemy
 AiPlayerbot.FleeingEnabled = 1
 
+# Grouped bots on a dungeon/raid map avoid pull-breaking crowd control:
+# no fear effects (except a last-resort self-save), roots only on their own
+# CC assignment or a mob hitting a non-tank bot, and no ground/point-blank AoE
+# near idle (not in combat) hostiles.
+# Default: 1 (enabled)
+AiPlayerbot.InstanceSafeCc = 1
+
 # Health/Mana levels
 #AiPlayerbot.CriticalHealth = 25
 #AiPlayerbot.LowHealth = 45

@@ -90,14 +90,31 @@ Unit* PartyMemberToHeal::Calculate()
         return nullptr;
     }
 
+    // Group members beyond heal range but within reach distance. Without them
+    // a tank that ran 35 yards ahead never showed up here at all, so no heal
+    // fired and its reach prerequisite never moved the healer over.
+    std::vector<Unit*> farHeals;
+    float const reachDist = GetReachDistance();
+
     if (!partyMembers.empty() || !needHeals.empty())
     {
         IsTargetOfHealingSpell predicate;
         bool const preHealing = ai->HasStrategy("preheal", BotState::BOT_STATE_COMBAT);
         for (Player* player : partyMembers)
         {
-            if (!Check(player) || !sServerFacade.IsAlive(player))
+            if (!sServerFacade.IsAlive(player))
             {
+                continue;
+            }
+
+            if (!Check(player))
+            {
+                if (Check(player, reachDist) && !(player->m_duel && player->m_duel->opponent) &&
+                    player->GetHealthPercent() < sPlayerbotAIConfig.almostFullHealth)
+                {
+                    farHeals.push_back(player);
+                }
+
                 continue;
             }
 
@@ -135,6 +152,17 @@ Unit* PartyMemberToHeal::Calculate()
             {
                 needHeals.push_back(pet);
             }
+        }
+    }
+
+    // Walking away from people already in range only pays off for someone in
+    // real trouble; otherwise far members are healed once nobody close needs it.
+    bool const nobodyInRange = needHeals.empty();
+    for (Unit* unit : farHeals)
+    {
+        if (nobodyInRange || unit->GetHealthPercent() < sPlayerbotAIConfig.mediumHealth)
+        {
+            needHeals.push_back(unit);
         }
     }
 
@@ -196,15 +224,33 @@ bool PartyMemberToHeal::CanHealPet(Pet* pet)
     return MINI_PET != pet->getPetType();
 }
 
-bool PartyMemberToHeal::Check(Unit* player)
+float PartyMemberToHeal::GetHealDistance()
 {
-    bool isBg = bot->InBattleGround();
-
     // Battlegrounds get their own figure rather than a blanket halving: the two
     // situations want different distances, and halving whatever the open-world
     // value happens to be ties them together for no reason.
-    float maxDist = isBg ? sPlayerbotAIConfig.healDistanceBg : ai->GetRange("heal");
+    return bot->InBattleGround() ? sPlayerbotAIConfig.healDistanceBg : ai->GetRange("heal");
+}
 
+float PartyMemberToHeal::GetReachDistance()
+{
+    float const healDist = GetHealDistance();
+
+    // Battlegrounds keep their own, tighter figure: running across the field
+    // after one ally is exactly what the separate setting is there to stop.
+    if (bot->InBattleGround())
+        return healDist;
+
+    return std::max(healDist, std::min(sPlayerbotAIConfig.sightDistance, 50.0f));
+}
+
+bool PartyMemberToHeal::Check(Unit* player)
+{
+    return Check(player, GetHealDistance());
+}
+
+bool PartyMemberToHeal::Check(Unit* player, float maxDist)
+{
     if (!player)
         return false;
 

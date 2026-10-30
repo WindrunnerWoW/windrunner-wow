@@ -3189,6 +3189,11 @@ void PlayerbotAI::ResetStrategies(bool autoLoad)
         char const* roleStrategy = m_forcedRole == 1 ? "tank" : (m_forcedRole == 2 ? "heal" : "dps");
         engines[(uint8)BotState::BOT_STATE_COMBAT]->addStrategy(roleStrategy);
         engines[(uint8)BotState::BOT_STATE_NON_COMBAT]->addStrategy(roleStrategy);
+
+        // The role extras (heal interrupt, tank face, threat...) were chosen
+        // from the strategies before the role alias went in; choose again.
+        AiFactory::AddRoleStrategies(bot, this, engines[(uint8)BotState::BOT_STATE_COMBAT],
+                                     engines[(uint8)BotState::BOT_STATE_NON_COMBAT], true);
         sLog.outBasic("LFT: %s strategies rebuilt as %s", bot->GetName(), roleStrategy);
     }
 
@@ -3235,12 +3240,39 @@ bool PlayerbotAI::IsMelee(Player* player, bool inGroup)
 
 bool PlayerbotAI::IsTank(Player* player, bool inGroup)
 {
+    if (!player)
+        return false;
+
+    // Whoever the group marked as main tank is one, bot or not.
+    Group* group = player->GetGroup();
+    if (group && group->GetMainTankGuid() == player->GetObjectGuid())
+        return true;
+
     PlayerbotAI* botAi = GetBotAI(player);
     if (botAi)
     {
         bool isTank = botAi->ContainsStrategy(STRATEGY_TYPE_TANK);
         if (inGroup || isTank)
             return isTank;
+    }
+    else
+    {
+        // A real player tanking on a levelling or dps build has no protection
+        // talents to go by, which left bots ignoring their threat, opening
+        // before them and healing them last. What they stand in says more.
+        static const uint32 tankAuras[] =
+        {
+            71,     // Defensive Stance
+            5487,   // Bear Form
+            9634,   // Dire Bear Form
+            25780,  // Righteous Fury
+        };
+
+        for (uint32 spellId : tankAuras)
+        {
+            if (player->HasAura(spellId))
+                return true;
+        }
     }
 
     BotRoles botRoles = AiFactory::GetPlayerRoles(player);
@@ -4871,7 +4903,10 @@ bool PlayerbotAI::GetSpellRange(std::string name, float* maxRange, float* minRan
 
                 if (spellInfo->HasAttribute(SPELL_ATTR_USES_RANGED_SLOT))
                 {
-                    if (Item* rangedWeapon = bot->GetWeaponForAttack(RANGED_ATTACK))
+                    // RangedModRange is 0 on most item_template rows and the core
+                    // never reads it for range; scaling by it would zero Shoot.
+                    Item* rangedWeapon = bot->GetWeaponForAttack(RANGED_ATTACK);
+                    if (rangedWeapon && rangedWeapon->GetProto()->RangedModRange > 0.0f)
                     {
                         spellMaxRange *= rangedWeapon->GetProto()->RangedModRange * 0.01f;
                     }

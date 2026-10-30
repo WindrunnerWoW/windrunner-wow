@@ -10,10 +10,14 @@ public:
     ShadowPriestStrategyActionNodeFactory()
     {
         creators["dispersion"] = &dispersion;
+        creators["mind flay"] = &mind_flay;
     }
 
 private:
     ACTION_NODE_A(dispersion, "dispersion", "mana potion");
+
+    // Wand when Mind Flay can't be cast (not enough mana, out of range...).
+    ACTION_NODE_A(mind_flay, "mind flay", "shoot");
 };
 
 ShadowPriestStrategy::ShadowPriestStrategy(PlayerbotAI* ai) : PriestStrategy(ai)
@@ -25,7 +29,7 @@ ShadowPriestStrategy::ShadowPriestStrategy(PlayerbotAI* ai) : PriestStrategy(ai)
 
 NextAction** ShadowPriestStrategy::GetDefaultCombatActions()
 {
-    return NextAction::array(0, new NextAction("mind flay", ACTION_IDLE), NULL);
+    return NextAction::array(0, new NextAction("mind flay", ACTION_IDLE), new NextAction("shoot", ACTION_IDLE - 0.5f), NULL);
 }
 
 void ShadowPriestStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -53,7 +57,7 @@ void ShadowPriestStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         NextAction::array(0, new NextAction("hex of weakness", ACTION_NORMAL + 2), NULL)));
 
     triggers.push_back(new TriggerNode(
-        "no mana",
+        "low mana",
         NextAction::array(0, new NextAction("shoot", ACTION_NORMAL), NULL)));
 
     // TurtleWoW build additions:
@@ -449,7 +453,7 @@ void ShadowPriestCureRaidStrategy::InitNonCombatTriggers(std::list<TriggerNode*>
 
 NextAction** ShadowPriestStrategy::GetDefaultCombatActions()
 {
-    return NextAction::array(0, new NextAction("mind flay", ACTION_IDLE), NULL);
+    return NextAction::array(0, new NextAction("mind flay", ACTION_IDLE), new NextAction("shoot", ACTION_IDLE - 0.5f), NULL);
 }
 
 void ShadowPriestStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -485,7 +489,7 @@ void ShadowPriestStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         NextAction::array(0, new NextAction("vampiric touch", ACTION_NORMAL + 1), NULL)));
 
     triggers.push_back(new TriggerNode(
-        "no mana",
+        "low mana",
         NextAction::array(0, new NextAction("shoot", ACTION_NORMAL), NULL)));
 }
 
@@ -835,7 +839,7 @@ void ShadowPriestCureRaidStrategy::InitNonCombatTriggers(std::list<TriggerNode*>
 
 NextAction** ShadowPriestStrategy::GetDefaultCombatActions()
 {
-    return NextAction::array(0, new NextAction("mind flay", ACTION_IDLE), NULL);
+    return NextAction::array(0, new NextAction("mind flay", ACTION_IDLE), new NextAction("shoot", ACTION_IDLE - 0.5f), NULL);
 }
 
 void ShadowPriestStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -871,7 +875,7 @@ void ShadowPriestStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         NextAction::array(0, new NextAction("vampiric touch", ACTION_NORMAL + 1), NULL)));
 
     triggers.push_back(new TriggerNode(
-        "no mana",
+        "low mana",
         NextAction::array(0, new NextAction("shoot", ACTION_NORMAL), NULL)));
 }
 

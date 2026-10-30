@@ -5,8 +5,59 @@
 #include "playerbot/strategy/actions/GenericSpellActions.h"
 #include "playerbot/strategy/values/LastSpellCastValue.h"
 #include "playerbot/ServerFacade.h"
+#include "Group/Group.h"
 
 using namespace ai;
+
+namespace
+{
+    // Instanced groups: a healer's mana belongs to the party, so damage spells
+    // only get what is left above these marks.
+    const uint8 kDungeonHealerDpsMana = 70;
+    const uint8 kDungeonHealerDpsGroupHealth = 80;
+    const uint8 kDungeonOffhealerDpsMana = 60;
+
+    bool IsShapeshiftSpell(const std::string& spell)
+    {
+        return spell == "bear form" || spell == "dire bear form" || spell == "cat form" ||
+               spell == "travel form" || spell == "aquatic form" || spell == "moonkin form";
+    }
+
+    bool IsGroupMemberBelow(Player* bot, uint8 healthPct)
+    {
+        Group* group = bot->GetGroup();
+        if (!group)
+            return false;
+
+        for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
+        {
+            Player* member = ref->getSource();
+            if (!member || !member->IsInWorld() || member->GetMapId() != bot->GetMapId() || !member->IsAlive())
+                continue;
+
+            if (member->GetHealthPercent() < healthPct)
+                return true;
+        }
+
+        return false;
+    }
+
+    bool HasOtherHealer(Player* bot)
+    {
+        Group* group = bot->GetGroup();
+        if (!group)
+            return false;
+
+        for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
+        {
+            Player* member = ref->getSource();
+            if (member && member != bot && member->IsAlive() && PlayerbotAI::IsHeal(member))
+                return true;
+        }
+
+        return false;
+    }
+}
 
 float ConserveManaMultiplier::GetValue(Action* action)
 {
@@ -36,13 +87,46 @@ float ConserveManaMultiplier::GetValue(Action* action)
     if (!spellInfo || spellInfo->powerType != POWER_MANA)
         return 1.0f;
 
+    // Free spells (wand Shoot) cost nothing to conserve.
+    if (spell == "shoot" || (!spellInfo->manaCost && !spellInfo->ManaCostPercentage))
+        return 1.0f;
+
+    // Forms are buffs too, but a druid that cannot shift back into bear or cat
+    // ends up meleeing in caster form - shifting is never worth saving for.
+    if (IsShapeshiftSpell(spell))
+        return 1.0f;
+
     // Skip combat buffs once mana is no longer comfortable.
     if (mediumMana && dynamic_cast<CastBuffSpellAction*>(action))
         return 0.0f;
 
+    bool const isDamage = action->getThreatType() != ActionThreatType::ACTION_THREAT_NONE;
+    bool const isHealer = ai->ContainsStrategy(STRATEGY_TYPE_HEAL);
+
+    // Grouped in a dungeon, damage from the healer is a luxury: a wipe two
+    // pulls later costs more than the mob dying a few seconds sooner.
+    Map* map = bot->GetMap();
+    if (isDamage && bot->GetGroup() && map && map->IsDungeon())
+    {
+        if (isHealer)
+        {
+            if (hasMana && mana < kDungeonHealerDpsMana)
+                return 0.0f;
+
+            if (IsGroupMemberBelow(bot, kDungeonHealerDpsGroupHealth))
+                return 0.0f;
+        }
+        else if (ai->HasStrategy("offheal", BotState::BOT_STATE_COMBAT) && !HasOtherHealer(bot))
+        {
+            // Off-healer (balance druid, shadow priest...) acting as the
+            // group's only healer: keep enough mana for the heals.
+            if (hasMana && mana < kDungeonOffhealerDpsMana)
+                return 0.0f;
+        }
+    }
+
     // Healers: drop off-DPS when mana is low, or when someone actually needs a heal.
-    if (ai->ContainsStrategy(STRATEGY_TYPE_HEAL) &&
-        action->getThreatType() != ActionThreatType::ACTION_THREAT_NONE)
+    if (isHealer && isDamage)
     {
         if (lowMana)
             return 0.0f;
@@ -113,6 +197,11 @@ float HealerAutoSaveManaMultiplier::GetValue(Action* action)
     if (!AI_VALUE2(bool, "has mana", "self target"))
         return 1.0f;
 
+    // Out of combat there is time to drink afterwards: topping people up is
+    // never worth refusing.
+    if (!bot->IsInCombat())
+        return 1.0f;
+
     uint8 mana = AI_VALUE2(uint8, "mana", "self target");
     if (mana > sPlayerbotAIConfig.saveManaThreshold)
         return 1.0f;
@@ -131,25 +220,24 @@ float HealerAutoSaveManaMultiplier::GetValue(Action* action)
     uint8 estAmount = healingAction->estAmount;
     uint8 lossAmount = health >= 100 ? 0 : (100 - health);
 
+    // Below low health anything goes: the fast, inefficient heals exist for
+    // exactly this. The non-tank branch used to refuse them at any health,
+    // so a dying DPS waited for a slow heal or got nothing.
+    if (health < sPlayerbotAIConfig.lowHealth)
+        return 1.0f;
+
+    // Tanks have larger health pools; treat estimated heal as smaller relative hit.
     if (isTank)
-    {
-        // Tanks have larger health pools; treat estimated heal as smaller relative hit.
         estAmount = uint8(float(estAmount) / 1.5f);
-        if (health >= sPlayerbotAIConfig.mediumHealth &&
-            (lossAmount < estAmount || manaEfficiency <= HealingManaEfficiency::MEDIUM))
-            return 0.0f;
-        if (health >= sPlayerbotAIConfig.lowHealth &&
-            (lossAmount < estAmount || manaEfficiency <= HealingManaEfficiency::LOW))
-            return 0.0f;
-    }
-    else
-    {
-        if (health >= sPlayerbotAIConfig.mediumHealth &&
-            (lossAmount < estAmount || manaEfficiency <= HealingManaEfficiency::MEDIUM))
-            return 0.0f;
-        if (lossAmount < estAmount || manaEfficiency <= HealingManaEfficiency::LOW)
-            return 0.0f;
-    }
+
+    // Medium to full: only efficient heals that will not mostly overheal.
+    if (health >= sPlayerbotAIConfig.mediumHealth &&
+        (lossAmount < estAmount || manaEfficiency <= HealingManaEfficiency::MEDIUM))
+        return 0.0f;
+
+    // Low to medium: drop only the least efficient heals and clear overheals.
+    if (lossAmount < estAmount || manaEfficiency <= HealingManaEfficiency::LOW)
+        return 0.0f;
 
     return 1.0f;
 }

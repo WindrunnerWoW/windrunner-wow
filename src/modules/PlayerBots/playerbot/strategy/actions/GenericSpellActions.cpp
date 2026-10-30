@@ -3,6 +3,8 @@
 #include "GenericActions.h"
 #include "UseItemAction.h"
 #include "playerbot/strategy/values/GroupCcTargetReservation.h"
+#include "playerbot/strategy/InstanceSafety.h"
+#include "playerbot/strategy/PetTauntAutocast.h"
 
 using namespace ai;
 
@@ -182,6 +184,11 @@ bool CastSpellAction::isUseful()
         return false;
 
     if (!spellTarget->IsInWorld() || spellTarget->GetMapId() != bot->GetMapId())
+        return false;
+
+    // Grouped on an instance map: no fears that run mobs into other packs and
+    // no roots that pin a mob away from the tank (AiPlayerbot.InstanceSafeCc).
+    if (!InstanceSafety::IsCcSafe(ai, GetSpellID(), GetSpellName(), spellTarget))
         return false;
 
     return true;
@@ -399,6 +406,16 @@ bool CastShootAction::isPossible()
     return false;
 }
 
+bool CastShootAction::isUseful()
+{
+    // Never let an alternative/idle wand clip a real cast or channel; an
+    // already running auto-repeat is fine (Execute treats it as success).
+    if (bot->IsNonMeleeSpellCasted(false, false, true))
+        return false;
+
+    return CastSpellAction::isUseful();
+}
+
 bool CastShootAction::Execute(Event& event)
 {
     bool succeeded = false;
@@ -406,6 +423,15 @@ bool CastShootAction::Execute(Event& event)
     UpdateWeaponInfo();
     if (rangedWeapon && !needsAmmo)
     {
+        // Wand/bow and melee swing are exclusive; drop the swing (but keep
+        // the attack target) before starting the auto-repeat shot.
+        if (bot->HasUnitState(UNIT_STAT_MELEE_ATTACKING))
+        {
+            bot->ClearUnitState(UNIT_STAT_MELEE_ATTACKING);
+            if (Unit* victim = bot->GetVictim())
+                bot->SendMeleeAttackStop(victim);
+        }
+
         // Prevent calling the shoot spell when already active
         Spell* autoRepeatSpell = ai->GetBot()->GetCurrentSpell(CURRENT_AUTOREPEAT_SPELL);
         if (autoRepeatSpell && (autoRepeatSpell->m_spellInfo->Id == GetSpellID()))
@@ -504,6 +530,16 @@ void CastShootAction::UpdateWeaponInfo()
     {
         rangedWeapon = nullptr;
     }
+}
+
+bool SyncPetTauntAutocastAction::isUseful()
+{
+    return PetTauntAutocast::Sync(bot, false);
+}
+
+bool SyncPetTauntAutocastAction::Execute(Event& event)
+{
+    return PetTauntAutocast::Sync(bot, true);
 }
 
 bool RemoveBuffAction::isUseful()

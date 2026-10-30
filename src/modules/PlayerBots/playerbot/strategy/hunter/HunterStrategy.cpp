@@ -113,6 +113,10 @@ void HunterStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
     triggers.push_back(new TriggerNode(
         "no pet",
         NextAction::array(0, new NextAction("tame beast", ACTION_EMERGENCY), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "pet taunt autocast",
+        NextAction::array(0, new NextAction("sync pet taunt autocast", ACTION_NORMAL), NULL)));
 }
 
 void HunterStrategy::InitReactionTriggers(std::list<TriggerNode*>& triggers)

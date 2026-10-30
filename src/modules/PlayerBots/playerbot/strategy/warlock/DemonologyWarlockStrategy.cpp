@@ -27,7 +27,7 @@ DemonologyWarlockStrategy::DemonologyWarlockStrategy(PlayerbotAI* ai) : WarlockS
 
 ai::NextAction** DemonologyWarlockStrategy::GetDefaultCombatActions()
 {
-    return NextAction::array(0, new NextAction("shadow bolt", ACTION_IDLE), NULL);
+    return NextAction::array(0, new NextAction("shadow bolt", ACTION_IDLE), new NextAction("shoot", ACTION_IDLE - 0.5f), NULL);
 }
 
 void DemonologyWarlockStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -390,7 +390,7 @@ void DemonologyWarlockCursesRaidStrategy::InitCombatTriggers(std::list<TriggerNo
 
 ai::NextAction** DemonologyWarlockStrategy::GetDefaultCombatActions()
 {
-    return NextAction::array(0, new NextAction("shadow bolt", ACTION_IDLE), NULL);
+    return NextAction::array(0, new NextAction("shadow bolt", ACTION_IDLE), new NextAction("shoot", ACTION_IDLE - 0.5f), NULL);
 }
 
 void DemonologyWarlockStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -761,7 +761,7 @@ void DemonologyWarlockCursesRaidStrategy::InitCombatTriggers(std::list<TriggerNo
 
 ai::NextAction** DemonologyWarlockStrategy::GetDefaultCombatActions()
 {
-    return NextAction::array(0, new NextAction("shadow bolt", ACTION_IDLE), NULL);
+    return NextAction::array(0, new NextAction("shadow bolt", ACTION_IDLE), new NextAction("shoot", ACTION_IDLE - 0.5f), NULL);
 }
 
 void DemonologyWarlockStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)

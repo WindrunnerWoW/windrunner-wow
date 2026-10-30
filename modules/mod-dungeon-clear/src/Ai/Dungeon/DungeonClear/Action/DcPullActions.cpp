@@ -2115,7 +2115,11 @@ bool DungeonClearPullManeuverAction::Execute(Event& /*event*/)
 
                     PathGenerator gen(bot);
                     gen.CalculatePath(nx, ny, nz, /*forceDest*/ false);
-                    if (!(gen.GetPathType() & (PATHFIND_NOPATH | PATHFIND_FARFROMPOLY)))
+                    // FARFROMPOLY is 0 here; SHORTCUT + a ground check do its job.
+                    if (!(gen.GetPathType() & (PATHFIND_NOPATH | PATHFIND_SHORTCUT)) &&
+                        NavmeshSnap::HasGround(bot->GetMap(), gen.GetActualEndPosition().x,
+                                               gen.GetActualEndPosition().y,
+                                               gen.GetActualEndPosition().z, 2.0f))
                     {
                         G3D::Vector3 const end = gen.GetActualEndPosition();
                         Position const next(end.x, end.y, end.z, camp.GetOrientation());

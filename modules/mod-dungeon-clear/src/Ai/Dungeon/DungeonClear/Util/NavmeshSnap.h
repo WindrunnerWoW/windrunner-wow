@@ -43,6 +43,20 @@ public:
     // 10yd vertical search can never see the real ground.
     static Result SnapColumn(Map const* map, float x, float y, float z,
                              float halfHeight = 250.0f, float radius = 6.0f);
+
+    // Real ground (terrain + vmap + dynamic/GO models, i.e. Map::GetHeight)
+    // within `tolerance` yards of (x, y, z) - above or below. The navmesh can
+    // carry polys the collision world does not (phantom decks, sealed shafts),
+    // so a snap or teleport target is only trusted once this agrees. Writes the
+    // ground Z on success.
+    static bool HasGround(Map const* map, float x, float y, float z,
+                          float tolerance = 2.0f, float* outZ = nullptr);
+
+    // Snap (x, y, z) to the mesh AND require real ground there: the safe way
+    // to pick a teleport landing. Searches `maxRadius` around the point with
+    // the normal 10yd vertical extent - never the tall column.
+    static Result SnapGrounded(Map const* map, float x, float y, float z,
+                               float maxRadius = 8.0f, float groundTolerance = 2.0f);
 };
 
 #endif

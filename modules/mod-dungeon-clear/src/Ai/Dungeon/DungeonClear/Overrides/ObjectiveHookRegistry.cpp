@@ -650,7 +650,8 @@ namespace
         {
             if (!bot->isMoving())
                 bot->GetMotionMaster()->MovePoint(0, cache->GetPositionX(), cache->GetPositionY(),
-                                                  cache->GetPositionZ());
+                                                  cache->GetPositionZ(),
+                                                  MOVE_PATHFINDING | MOVE_RUN_MODE);
             return ObjectiveArriveResult::Running;
         }
 

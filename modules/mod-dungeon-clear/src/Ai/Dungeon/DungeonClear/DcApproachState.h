@@ -149,6 +149,11 @@ struct DcApproachState
     Position   chaseAnchor;          // where THAT MOB stood when we committed
     Position   chaseOrigin;          // where the TANK stood then (gap origin)
     uint32     chaseHoldSince  = 0;  // getMSTime() the current hold began; 0 = not holding
+    // Fleeing-mob leash (ChaseLeash). A low-HP mob running for help is the one
+    // in-combat target the tank must NOT run down: it leads straight into the
+    // next pack. Anchored where the mob stood when it broke into a flee.
+    ObjectGuid fleeTarget;           // in-combat mob the flee anchor belongs to
+    Position   fleeAnchor;           // where it stood when it started fleeing
 
     // Mid-glide hazard probe (Advance). While a continuous escort spline is in
     // flight the hop ladder short-circuits (the ride outranks everything), so a
@@ -269,6 +274,8 @@ struct DcApproachState
         chaseAnchor         = Position();
         chaseOrigin         = Position();
         chaseHoldSince      = 0;
+        fleeTarget.Clear();
+        fleeAnchor          = Position();
         glideHazardProbeMs  = 0;
         glideHazardIgnore.Clear();
         doorStallGuid.Clear();

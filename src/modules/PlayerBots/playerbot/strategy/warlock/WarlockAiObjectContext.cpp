@@ -264,6 +264,7 @@ namespace ai
                 creators["create spellstone"] = [](PlayerbotAI* ai) { return new CastCreateSpellstoneAction(ai); };
                 creators["spellstone"] = [](PlayerbotAI* ai) { return new UseSpellItemAction(ai, "spellstone"); };
                 creators["summon voidwalker"] = [](PlayerbotAI* ai) { return new CastSummonVoidwalkerAction(ai); };
+                creators["sync pet taunt autocast"] = [](PlayerbotAI* ai) { return new SyncPetTauntAutocastAction(ai); };
                 creators["summon succubus"] = [](PlayerbotAI* ai) { return new CastSummonSuccubusAction(ai); };
                 creators["summon felhunter"] = [](PlayerbotAI* ai) { return new CastSummonFelhunterAction(ai); };
                 creators["summon imp"] = [](PlayerbotAI* ai) { return new CastSummonImpAction(ai); };

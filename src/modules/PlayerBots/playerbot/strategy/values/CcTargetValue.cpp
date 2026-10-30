@@ -5,6 +5,7 @@
 #include "playerbot/PlayerbotAIConfig.h"
 #include "playerbot/ServerFacade.h"
 #include "playerbot/strategy/Action.h"
+#include "playerbot/strategy/InstanceSafety.h"
 
 using namespace ai;
 
@@ -226,6 +227,18 @@ private:
 
 Unit* CcTargetValue::Calculate()
 {
+    // Fear CC is never cast on instance maps (CastSpellAction gate), so do not
+    // select or claim a target for it: the claim would lock the add away from
+    // a controller that can actually hold it.
+    if (InstanceSafety::IsActive(bot) &&
+        InstanceSafety::IsFearSpell(sServerFacade.LookupSpellInfo(AI_VALUE2(uint32, "spell id", qualifier))))
+    {
+        ObjectGuid ownedGuid = GroupCcTargetReservation::GetOwnedTarget(bot);
+        if (!ownedGuid.IsEmpty() && !GroupCcTargetReservation::IsInFlight(bot, ownedGuid))
+            GroupCcTargetReservation::Release(bot, ownedGuid);
+        return nullptr;
+    }
+
     std::list<ObjectGuid> possible = AI_VALUE(std::list<ObjectGuid>,"possible targets no los");
 
     for (std::list<ObjectGuid>::iterator i = possible.begin(); i != possible.end(); ++i)

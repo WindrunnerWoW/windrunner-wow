@@ -69,15 +69,20 @@ namespace
     constexpr float REACH_FRACTIONS[] = {1.0f, 0.5f, 0.25f};
 
     // Reject path types that don't represent a real chunked corridor.
-    //  - PATHFIND_INCOMPLETE /* this finder reports a trimmed path as incomplete */: BuildShortcut overwrote _pathPoints to [start, target].
-    //                    Endpoint is the original target, so chunked stepping
-    //                    would jump there in one shot. (The v1 bug.)
-    //  - PATHFIND_SHORTCUT: same shape, different origin (start/end far
-    //                       from any poly + flying/swimming detected).
+    //  - PATHFIND_SHORTCUT: BuildShortcut overwrote the points with
+    //                       [start, target] - a straight line, whatever other
+    //                       bits ride along (this core pairs it with NOPATH or
+    //                       INCOMPLETE when it gives up). (The v1 bug.)
     //  - PATHFIND_NOPATH: no route at all.
+    // A bare PATHFIND_INCOMPLETE is NOT bogus in this core: PathInfo reports a
+    // real poly corridor that stops short of the target that way (end poly not
+    // reached). Its points are walkable, the LOS/ground screen still runs over
+    // them, and the next stride re-probes from where it ends - which is far
+    // better than the old answer of throwing it away and falling back to a
+    // straight point.
     bool PathTypeIsBogusChunk(uint32 type)
     {
-        return (type & PATHFIND_NOPATH) || (type & PATHFIND_INCOMPLETE /* this finder reports a trimmed path as incomplete */) || (type & PATHFIND_SHORTCUT);
+        return (type & PATHFIND_NOPATH) || (type & PATHFIND_SHORTCUT);
     }
 
     // LOS screen, distance helpers and the graze-bridged clean-prefix walk now
@@ -137,10 +142,17 @@ namespace
             return false;
 
         // PATHFIND_NOT_USING_PATH happens on maps without mmap, or flying/
-        // swimming. The shortcut spline goes straight to (px,py,pz); accept
-        // it as a single hop — there's no chunking to do anyway.
+        // swimming. The spline goes straight to (px,py,pz). That is only a
+        // legitimate hop as a SWIM leg (both ends in water) with a clear
+        // sightline; on dry ground it is a straight line through whatever is in
+        // the way, so refuse it and let the next tier find a real corridor.
         if (outType & PATHFIND_NOT_USING_PATH)
         {
+            Map const* map = bot->FindMap();
+            bool const swimLeg = map && map->IsInWater(cx, cy, cz) && map->IsInWater(px, py, pz);
+            if (!swimLeg ||
+                !DungeonClearGeometry::ChordClear(bot, G3D::Vector3(cx, cy, cz), G3D::Vector3(px, py, pz)))
+                return false;
             outPoints.push_back(G3D::Vector3(px, py, pz));
             return true;
         }
@@ -380,12 +392,26 @@ StridedPathfinder::Result StridedPathfinder::Build(Player* bot, uint32 mapId, ui
                 {
                     seg.polyline = std::move(legPoints);
                 }
+                else if (seg.jumpDown || seg.jumpGap)
+                {
+                    // A flagged jump anchor IS the off-mesh gap the route
+                    // author placed it to bridge: the single point is the
+                    // intended leap, and the follower's jump handling owns it.
+                    seg.polyline.push_back(G3D::Vector3(snapped.x, snapped.y, snapped.z));
+                }
                 else
                 {
-                    // Probe failed (off-mesh leg, no mmap, a gap the anchor is
-                    // there to bridge): keep the old single point. That is the
-                    // previous behaviour exactly, so this can only ever match it.
-                    seg.polyline.push_back(G3D::Vector3(snapped.x, snapped.y, snapped.z));
+                    // Probe failed on an ordinary anchor. The old single-point
+                    // fallback made this leg a straight line from the previous
+                    // anchor - through whatever wall or over whatever ledge the
+                    // probe just failed on. Drop the anchor instead; the next
+                    // leg is probed from the last good anchor, so the route
+                    // simply routes past it.
+                    LOG_DEBUG("playerbots.dungeonclear",
+                              "[dungeon-clear] anchor ({:.1f},{:.1f},{:.1f}) for map {} boss {} "
+                              "has no path from the previous one (type=0x{:x}) - dropping it",
+                              snapped.x, snapped.y, snapped.z, mapId, bossEntry, legType);
+                    continue;
                 }
                 legFromX = snapped.x;
                 legFromY = snapped.y;
@@ -406,12 +432,24 @@ StridedPathfinder::Result StridedPathfinder::Build(Player* bot, uint32 mapId, ui
                 uint32 goalType = 0;
                 if (TryProbe(bot, mapId, legFromX, legFromY, legFromZ, tx, ty, tz,
                              goalPoints, goalType) && !goalPoints.empty())
+                {
                     goal.polyline = std::move(goalPoints);
+                    result.segments.push_back(goal);
+                    result.complete = true;
+                }
                 else
-                    goal.polyline.push_back(G3D::Vector3(tx, ty, tz));
-                result.segments.push_back(goal);
+                {
+                    // No path from the last anchor to the target: hand back the
+                    // anchored part as an INCOMPLETE route rather than closing it
+                    // with a straight line. The follower walks what is verified
+                    // and the next rebuild probes the rest from there.
+                    result.complete = false;
+                    LOG_DEBUG("playerbots.dungeonclear",
+                              "[dungeon-clear] anchor route for map {} boss {}: no path from the "
+                              "last anchor to the target (type=0x{:x}) - route left incomplete",
+                              mapId, bossEntry, goalType);
+                }
                 result.reachable = true;
-                result.complete = true;
                 return result;
             }
         }
@@ -553,7 +591,16 @@ StridedPathfinder::Result StridedPathfinder::Build(Player* bot, uint32 mapId, ui
             }
         }
 
-        if (stride == 0 && !stridedOk && (outType & PATHFIND_FARFROMPOLY_START))
+        // PATHFIND_FARFROMPOLY_START is 0 in this core, so ask the mesh directly:
+        // the bot is "off the navmesh" when no walkable poly lies within ~7yd
+        // (PathGenerator's own far-from-poly distance).
+        bool startFarFromPoly = false;
+        if (stride == 0 && !stridedOk)
+        {
+            NavmeshSnap::Result const here = NavmeshSnap::Snap(map, cx, cy, cz, 3.0f);
+            startFarFromPoly = !here.ok || here.distance > 7.0f;
+        }
+        if (stride == 0 && !stridedOk && startFarFromPoly)
         {
             // The bot itself is off the navmesh. Surface this to Advance so
             // it can run a FARFROMPOLY recovery hop.

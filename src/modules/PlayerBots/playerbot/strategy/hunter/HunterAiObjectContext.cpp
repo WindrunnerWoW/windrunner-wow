@@ -302,6 +302,7 @@ namespace ai
                 creators["readiness"] = [](PlayerbotAI* ai) { return new CastReadinessAction(ai); };
                 creators["steady shot"] = [](PlayerbotAI* ai) { return new CastSteadyShotAction(ai); };
                 creators["tame beast"] = [](PlayerbotAI* ai) { return new TameBeastAction(ai); };
+                creators["sync pet taunt autocast"] = [](PlayerbotAI* ai) { return new SyncPetTauntAutocastAction(ai); };
                 creators["flare"] = [](PlayerbotAI* ai) { return new CastFlareAction(ai); };
                 creators["immolation trap"] = [](PlayerbotAI* ai) { return new CastImmolationTrapAction(ai); };
                 creators["frost trap"] = [](PlayerbotAI* ai) { return new CastFrostTrapAction(ai); };

@@ -641,6 +641,15 @@ namespace ai
         virtual std::string getName() override { return "outnumbered"; }
     END_TRIGGER()
 
+    // Pet taunt autocast (Growl/Torment/Suffering) disagrees with the owner's
+    // group state: off while grouped, on while solo.
+    class PetTauntAutocastTrigger : public Trigger
+    {
+    public:
+        PetTauntAutocastTrigger(PlayerbotAI* ai) : Trigger(ai, "pet taunt autocast", 5) {}
+        virtual bool IsActive() override;
+    };
+
 	class NoPetTrigger : public Trigger
 	{
 	public:

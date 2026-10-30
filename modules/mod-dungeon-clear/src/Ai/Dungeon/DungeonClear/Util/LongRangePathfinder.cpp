@@ -490,12 +490,15 @@ LongRangePathfinder::Result LongRangePathfinder::Finalize(Player* bot, RawResult
         return result;
     }
 
-    // Pin each point to a walkable Z, exactly as PathGenerator::NormalizePath
-    // does. (Was inline in the convert loop pre-split; moved here because it
-    // reads terrain/VMAP.) pts[0] is the (snapped) start.
+    // Pin each point to a walkable Z, as PathGenerator::NormalizePath does -
+    // but bounded: the static probe looks down and under a bridge or stacked
+    // floor lands on the level below (or under the map), so a correction over
+    // ~1.5yd is refused and the navmesh Z kept. (Was inline in the convert loop
+    // pre-split; moved here because it reads terrain/VMAP.) pts[0] is the
+    // (snapped) start.
     std::vector<G3D::Vector3> pts = raw.rawPts;
     for (G3D::Vector3& p : pts)
-        bot->UpdateAllowedPositionZ(p.x, p.y, p.z);
+        DungeonClearGeometry::ClampedAllowedZ(bot, p);
 
     // Nudge the taut, wall-hugging smoothed line toward the corridor centre so
     // the bot stops grazing walls/ledges and clipping wall-lining props. The

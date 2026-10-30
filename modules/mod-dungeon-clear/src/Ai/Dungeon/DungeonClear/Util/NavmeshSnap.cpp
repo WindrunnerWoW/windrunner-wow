@@ -5,6 +5,7 @@
 
 #include "NavmeshSnap.h"
 
+#include <algorithm>
 #include <cmath>
 
 #include "DetourExtended.h"
@@ -109,4 +110,39 @@ NavmeshSnap::Result NavmeshSnap::SnapColumn(Map const* map, float x, float y, fl
     float const dx = result.x - x, dy = result.y - y, dz = result.z - z;
     result.distance = std::sqrt(dx * dx + dy * dy + dz * dz);
     return result;
+}
+
+bool NavmeshSnap::HasGround(Map const* map, float x, float y, float z,
+                            float tolerance, float* outZ)
+{
+    if (!map || !MaNGOS::IsValidMapCoord(x, y, z))
+        return false;
+
+    // GetHeight looks down from probeZ + 2, so start `tolerance` above the
+    // point to also accept a floor that sits a little over it (a snapped poly
+    // is often a hair under the render mesh).
+    float const probeZ = z + tolerance;
+    float const ground = map->GetHeight(x, y, probeZ, true, tolerance * 2.0f + 2.0f);
+    if (ground <= INVALID_HEIGHT)
+        return false;
+    if (std::fabs(ground - z) > tolerance)
+        return false;
+    if (outZ)
+        *outZ = ground;
+    return true;
+}
+
+NavmeshSnap::Result NavmeshSnap::SnapGrounded(Map const* map, float x, float y, float z,
+                                              float maxRadius, float groundTolerance)
+{
+    Result snapped = Snap(map, x, y, z, maxRadius);
+    if (!snapped.ok)
+        return snapped;
+    float groundZ = snapped.z;
+    if (!HasGround(map, snapped.x, snapped.y, snapped.z, groundTolerance, &groundZ))
+        return Result{};
+    // Land on the collision floor, not the mesh approximation of it, so the
+    // arrival never starts inside the floor.
+    snapped.z = std::max(snapped.z, groundZ) + 0.1f;
+    return snapped;
 }

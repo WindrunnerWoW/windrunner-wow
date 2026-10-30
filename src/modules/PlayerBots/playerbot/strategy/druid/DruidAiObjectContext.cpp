@@ -238,6 +238,8 @@ namespace ai
                 creators["entangling roots snare"] = [](PlayerbotAI* ai) { return new EntanglingRootsSnareTrigger(ai); };
                 creators["hibernate"] = [](PlayerbotAI* ai) { return new HibernateTrigger(ai); };
                 creators["bear form"] = [](PlayerbotAI* ai) { return new BearFormTrigger(ai); };
+                creators["solo low health"] = [](PlayerbotAI* ai) { return new SoloLowHealthTrigger(ai); };
+                creators["solo critical health"] = [](PlayerbotAI* ai) { return new SoloCriticalHealthTrigger(ai); };
                 creators["cat form"] = [](PlayerbotAI* ai) { return new CatFormTrigger(ai); };
                 creators["tree form"] = [](PlayerbotAI* ai) { return new TreeFormTrigger(ai); };
                 creators["moonkin form"] = [](PlayerbotAI* ai) { return new MoonkinFormTrigger(ai); };

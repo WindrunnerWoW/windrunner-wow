@@ -386,7 +386,7 @@ void MageCcStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
     CcStrategy::InitCombatTriggers(triggers);
 
     triggers.push_back(new TriggerNode(
-        "enemy ten yards",
+        "enemy ten yards targeting bot",
         NextAction::array(0, new NextAction("frost nova", ACTION_EMERGENCY), NULL)));
 
     triggers.push_back(new TriggerNode(
@@ -809,7 +809,7 @@ void MageCcStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
     CcStrategy::InitCombatTriggers(triggers);
 
     triggers.push_back(new TriggerNode(
-        "enemy ten yards",
+        "enemy ten yards targeting bot",
         NextAction::array(0, new NextAction("frost nova", ACTION_EMERGENCY), NULL)));
 
     triggers.push_back(new TriggerNode(
@@ -1236,7 +1236,7 @@ void MageCcStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
     CcStrategy::InitCombatTriggers(triggers);
 
     triggers.push_back(new TriggerNode(
-        "enemy ten yards",
+        "enemy ten yards targeting bot",
         NextAction::array(0, new NextAction("frost nova", ACTION_EMERGENCY), NULL)));
 
     triggers.push_back(new TriggerNode(

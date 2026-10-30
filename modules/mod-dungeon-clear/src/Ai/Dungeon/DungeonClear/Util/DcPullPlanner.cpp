@@ -161,12 +161,17 @@ Position DcPullPlanner::ComputeCampSlot(Player* bot, Position const& camp)
     // slot well past the intended 1-2yd (camp wedged against geometry); in those
     // cases fall back to the exact camp so we never displace a follower onto a
     // worse spot than the anchor itself.
+    // (PATHFIND_FARFROMPOLY is 0 in this core: the SHORTCUT bit is what marks
+    // a probe that gave up and drew a straight line, and the ground check is
+    // what the far-from-poly test was standing in for.)
     PathGenerator gen(bot);
     gen.CalculatePath(fx, fy, fz, /*forceDest*/ false);
-    if (gen.GetPathType() & (PATHFIND_NOPATH | PATHFIND_FARFROMPOLY))
+    if (gen.GetPathType() & (PATHFIND_NOPATH | PATHFIND_SHORTCUT))
         return camp;
 
     G3D::Vector3 const end = gen.GetActualEndPosition();
+    if (!NavmeshSnap::HasGround(bot->GetMap(), end.x, end.y, end.z, 2.0f))
+        return camp;
     Position const slot(end.x, end.y, end.z, camp.GetOrientation());
     if (camp.GetExactDist(&slot) > 3.0f)
         return camp;
@@ -213,10 +218,12 @@ Position DcPullPlanner::ComputeHealApproach(Player* bot, Unit* healTarget,
     // land in a wall or off a ledge; fall back to camp on a bad probe.
     PathGenerator gen(bot);
     gen.CalculatePath(px, py, pz, /*forceDest*/ false);
-    if (gen.GetPathType() & (PATHFIND_NOPATH | PATHFIND_FARFROMPOLY))
+    if (gen.GetPathType() & (PATHFIND_NOPATH | PATHFIND_SHORTCUT))   // see ComputeCampSlot
         return camp;
 
     G3D::Vector3 const end = gen.GetActualEndPosition();
+    if (!NavmeshSnap::HasGround(bot->GetMap(), end.x, end.y, end.z, 2.0f))
+        return camp;
     return Position(end.x, end.y, end.z, camp.GetOrientation());
 }
 bool DcPullPlanner::ClassifyPullAdvanced(PlayerbotAI* botAI, Unit* target,

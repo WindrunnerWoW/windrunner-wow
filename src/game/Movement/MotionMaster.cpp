@@ -445,10 +445,39 @@ void MotionMaster::MovePoint(uint32 id, float x, float y, float z, uint32 option
 {
     DEBUG_FILTER_LOG(LOG_FILTER_AI_AND_MOVEGENSS, "%s targeted point (Id: %u X: %f Y: %f Z: %f)", m_owner->GetGuidStr().c_str(), id, x, y, z);
 
+    // Server-driven player moves (bots) run unless walk was asked for: without
+    // either flag the spline mixes in whatever walk bit the unit carried, and a
+    // stale one turns a whole leg into a walk.
+    if (m_owner->IsPlayer() && !(options & (MOVE_WALK_MODE | MOVE_RUN_MODE)))
+        options |= MOVE_RUN_MODE;
+
     if (m_owner->IsPlayer())
         Mutate(new PointMovementGenerator<Player>(id, x, y, z, options, speed, finalOrientation));
     else
         Mutate(new PointMovementGenerator<Creature>(id, x, y, z, options, speed, finalOrientation));
+}
+
+void MotionMaster::MovePoint(uint32 id, float x, float y, float z, uint32 options, float speed,
+                             float finalOrientation, bool generatePath, bool forceDestination)
+{
+    // Server-driven player movement on an instance map is bot movement; a
+    // straight spline there walks through walls and off ledges, so always
+    // route it and never let a forced destination shortcut the navmesh.
+    bool const dungeonPlayer = m_owner->IsPlayer() && m_owner->GetMap() && m_owner->GetMap()->IsDungeon();
+
+    if (generatePath || dungeonPlayer)
+    {
+        options |= MOVE_PATHFINDING;
+        options &= ~MOVE_STRAIGHT_PATH;
+        if (!(options & MOVE_WALK_MODE))
+            options |= MOVE_RUN_MODE;
+    }
+    if (forceDestination && !dungeonPlayer)
+        options |= MOVE_FORCE_DESTINATION;
+    else if (dungeonPlayer)
+        options &= ~MOVE_FORCE_DESTINATION;
+
+    MovePoint(id, x, y, z, options, speed, finalOrientation);
 }
 
 void MotionMaster::MoveSeekAssistance(float x, float y, float z)

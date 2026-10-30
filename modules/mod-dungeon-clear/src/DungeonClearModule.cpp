@@ -49,6 +49,7 @@
 #include "Ai/Dungeon/DungeonClear/Util/DcEncounterMask.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcRouteRecorder.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcRun.h"
+#include "Ai/Dungeon/DungeonClear/Util/DcStrandedRecovery.h"
 #include "AllCreatureScript.h"
 #include "Cell.h"
 #include "CellImpl.h"
@@ -208,6 +209,9 @@ public:
         DcStrategyGate::Reconcile(player);
         if (DcRun::Of(ai).enabled)
             DcRouteRecorder::Sample(player);
+        // Every bot, not only the leader: any member can clip through a floor.
+        // Self-throttled and inert outside a run on an instance map.
+        DcStrandedRecovery::FallGuard(player);
     }
 };
 

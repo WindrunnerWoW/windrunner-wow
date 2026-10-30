@@ -158,6 +158,20 @@ struct DcRunState
     float  progressBestDist  = -1.0f;   // closest tank approach to the current anchor (<0 = unset)
     uint32 progressAnchorEntry = 0;     // anchor entry progressBestDist is keyed to (re-arm on change)
 
+    // === fall guard (PER-BOT, every member's own copy) ============================
+    // DcStrandedRecovery::FallGuard, ticked from each bot's own Player::Update.
+    // The last spot this bot stood alive on real ground on this map, and the
+    // throttle / rate-limit clocks for the snap-back. Not leader-owned: each
+    // member reads and writes only its own.
+    bool   safeValid      = false;
+    uint32 safeMapId      = 0;
+    uint32 safeInstanceId = 0;
+    float  safeX = 0.0f, safeY = 0.0f, safeZ = 0.0f;
+    uint32 fallGuardCheckMs   = 0;   // getMSTime() of the last check (throttle)
+    uint32 fallGuardSunkSince = 0;   // first tick the bot read "under the floor"
+    uint32 fallGuardRescueMs  = 0;   // getMSTime() of the last snap-back
+    uint32 fallGuardRescues   = 0;   // snap-backs inside the current burst window
+
     // Full run teardown: every session + signal field. Used on dc on / dc off /
     // death / all-cleared. (The pull preference/bool are NOT here — see the header
     // note; they are reset explicitly by ApplyPullSetting / DisableDungeonClear.)

@@ -379,6 +379,7 @@ namespace ai
         ActionThreatType getThreatType() override { return ActionThreatType::ACTION_THREAT_NONE; }
         bool Execute(Event& event) override;
         bool isPossible() override;
+        bool isUseful() override;
 
     protected:
         virtual std::string GetReachActionName() override { return "reach spell"; }
@@ -390,6 +391,16 @@ namespace ai
         const Item* rangedWeapon;
         uint32 weaponDelay;
         bool needsAmmo;
+    };
+
+    // Flips pet taunt autocast to match the owner's group state (see
+    // PetTauntAutocast.h). Registered by the hunter and warlock contexts.
+    class SyncPetTauntAutocastAction : public Action
+    {
+    public:
+        SyncPetTauntAutocastAction(PlayerbotAI* ai) : Action(ai, "sync pet taunt autocast") {}
+        bool Execute(Event& event) override;
+        bool isUseful() override;
     };
 
     class RemoveBuffAction : public Action

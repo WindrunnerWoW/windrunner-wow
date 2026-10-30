@@ -140,12 +140,13 @@ class MotionMaster : std::stack<MovementGenerator *>
         void MoveFeared(Unit* enemy, uint32 time = 0);
         void MovePoint(uint32 id, const Movement::Location& location, uint32 options = MOVE_NONE, float speed = 0.0f, float finalOrientation = -10);
         void MovePoint(uint32 id, float x, float y, float z, uint32 options = MOVE_NONE, float speed = 0.0f, float finalOrientation = -10);
-        // AzerothCore appends generatePath and forceDestination. This generator
-        // always paths and never forces, so both are accepted and dropped -
-        // a ported caller asking for a straight line still gets a routed one.
+        // AzerothCore appends generatePath and forceDestination. The generator
+        // only routes when MOVE_PATHFINDING is set, so generatePath maps onto it
+        // (and is forced on for players on dungeon maps - a straight line there
+        // clips walls and floors). forceDestination maps onto
+        // MOVE_FORCE_DESTINATION, except for those dungeon players.
         void MovePoint(uint32 id, float x, float y, float z, uint32 options, float speed,
-                       float finalOrientation, bool /*generatePath*/, bool /*forceDestination*/)
-        { MovePoint(id, x, y, z, options, speed, finalOrientation); }
+                       float finalOrientation, bool generatePath, bool forceDestination);
         void MoveSeekAssistance(float x,float y,float z);
         void MoveSeekAssistanceDistract(uint32 timer);
         void MoveWaypoint(uint32 startPoint = 0, uint32 source = 0, uint32 initialDelay = 0, uint32 overwriteGuid = 0, uint32 overwriteEntry = 0, bool repeat = true);

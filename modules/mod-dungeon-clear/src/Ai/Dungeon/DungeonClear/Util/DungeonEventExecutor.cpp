@@ -41,6 +41,7 @@
 #include "Ai/Dungeon/DungeonClear/Util/DcCombatFlag.h"
 #include "Ai/Dungeon/DungeonClear/Util/DungeonClearTuning.h"
 #include "Ai/Dungeon/DungeonClear/Util/DungeonPathFollower.h"
+#include "Ai/Dungeon/DungeonClear/Util/NavmeshSnap.h"
 
 namespace
 {
@@ -190,11 +191,33 @@ namespace
             // them back toward the lip.
             float const angle = leader->GetOrientation() + static_cast<float>(idx) * 0.7f;
             float const off = 1.5f + 0.5f * static_cast<float>(idx);
-            float const tx = lx + std::cos(angle) * off;
-            float const ty = ly + std::sin(angle) * off;
+            float tx = lx + std::cos(angle) * off;
+            float ty = ly + std::sin(angle) * off;
+            float tz = lz;
+
+            // The fanned spot inherits the landing Z, which is only right on flat
+            // ground - beside a ledge or in a narrow shaft bottom it is air or
+            // inside a wall. Take it only with real ground under it; otherwise
+            // stack on the landing itself (hand-placed, column-probed).
+            {
+                NavmeshSnap::Result const spot =
+                    NavmeshSnap::SnapGrounded(leader->GetMap(), tx, ty, lz, 3.0f);
+                if (spot.ok && std::fabs(spot.z - lz) < 3.0f)
+                {
+                    tx = spot.x;
+                    ty = spot.y;
+                    tz = spot.z;
+                }
+                else
+                {
+                    tx = lx;
+                    ty = ly;
+                }
+            }
 
             member->GetMotionMaster()->Clear();
-            member->NearTeleportTo(tx, ty, lz, member->GetOrientation(),
+            member->SetFallInformation(0, 0.0f);
+            member->NearTeleportTo(tx, ty, tz, member->GetOrientation(),
                                    /*casting*/ false, /*vehicle*/ false, /*withPet*/ true);
             ++idx;
 

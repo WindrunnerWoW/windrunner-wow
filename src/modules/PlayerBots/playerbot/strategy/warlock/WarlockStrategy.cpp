@@ -13,6 +13,7 @@ public:
         creators["banish"] = &banish;
         creators["fel armor"] = &fel_armor;
         creators["demon armor"] = &demon_armor;
+        creators["shadow bolt"] = &shadow_bolt;
     }
 
 private:
@@ -21,6 +22,9 @@ private:
     ACTION_NODE_A(fel_armor, "fel armor", "demon armor");
 
     ACTION_NODE_A(demon_armor, "demon armor", "demon skin");
+
+    // Wand when Shadow Bolt can't be cast (not enough mana, out of range...).
+    ACTION_NODE_A(shadow_bolt, "shadow bolt", "shoot");
 };
 
 WarlockStrategy::WarlockStrategy(PlayerbotAI* ai) : ClassStrategy(ai)
@@ -59,7 +63,7 @@ void WarlockStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         NextAction::array(0, new NextAction("corruption", ACTION_NORMAL + 1), NULL)));
 
     triggers.push_back(new TriggerNode(
-        "no mana",
+        "low mana",
         NextAction::array(0, new NextAction("shoot", ACTION_NORMAL), NULL)));
 }
 
@@ -70,6 +74,10 @@ void WarlockStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
     triggers.push_back(new TriggerNode(
         "often",
         NextAction::array(0, new NextAction("initialize pet", ACTION_NORMAL + 1), NULL)));
+
+    triggers.push_back(new TriggerNode(
+        "pet taunt autocast",
+        NextAction::array(0, new NextAction("sync pet taunt autocast", ACTION_NORMAL), NULL)));
 
     triggers.push_back(new TriggerNode(
         "no healthstone",
@@ -361,7 +369,7 @@ void WarlockCcStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         NextAction::array(0, new NextAction("fear on cc", ACTION_INTERRUPT + 1), NULL)));
 
     triggers.push_back(new TriggerNode(
-        "enemy ten yards",
+        "enemy ten yards targeting bot",
         NextAction::array(0, new NextAction("howl of terror", ACTION_INTERRUPT), NULL)));
 }
 
@@ -519,7 +527,7 @@ void WarlockStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         NextAction::array(0, new NextAction("corruption", ACTION_NORMAL + 1), NULL)));
 
     triggers.push_back(new TriggerNode(
-        "no mana",
+        "low mana",
         NextAction::array(0, new NextAction("shoot", ACTION_NORMAL), NULL)));
 }
 
@@ -825,7 +833,7 @@ void WarlockCcStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         NextAction::array(0, new NextAction("fear on cc", ACTION_INTERRUPT + 1), NULL)));
 
     triggers.push_back(new TriggerNode(
-        "enemy ten yards",
+        "enemy ten yards targeting bot",
         NextAction::array(0, new NextAction("howl of terror", ACTION_INTERRUPT), NULL)));
 }
 
@@ -985,7 +993,7 @@ void WarlockStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         NextAction::array(0, new NextAction("corruption", ACTION_NORMAL + 1), NULL)));
 
     triggers.push_back(new TriggerNode(
-        "no mana",
+        "low mana",
         NextAction::array(0, new NextAction("shoot", ACTION_NORMAL), NULL)));
 }
 
@@ -1291,7 +1299,7 @@ void WarlockCcStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         NextAction::array(0, new NextAction("fear on cc", ACTION_INTERRUPT + 1), NULL)));
 
     triggers.push_back(new TriggerNode(
-        "enemy ten yards",
+        "enemy ten yards targeting bot",
         NextAction::array(0, new NextAction("howl of terror", ACTION_INTERRUPT), NULL)));
 }
 

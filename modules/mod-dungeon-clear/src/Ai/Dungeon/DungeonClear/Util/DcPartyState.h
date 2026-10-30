@@ -44,11 +44,20 @@ public:
     //    forever while the tank glides away unchecked (the scout-runaway gap).
     //    Sized generously (spread + the largest legitimate camp standoff) so it
     //    never trips in healthy pull states — see GetSpreadGate.
-    // Dead members are not blocking — the party-died trigger handles them.
+    // Dead members block a readiness check (minHpPct > 0) — the tank does not
+    // walk on a man short — and are skipped by a pure spread check (minHpPct 0).
+    // Mana is read for every member with a mana pool, whatever its current
+    // power type (a shapeshifted druid still heals with mana).
     // Callers pass RestMinHpPct()/RestMinMpPct() for the recovery thresholds.
     static bool IsPartyReady(Player* bot, float minHpPct, float minMpPct, float maxSpread,
                              Position const* spreadAnchor = nullptr,
                              float maxTankGap = 0.0f);
+
+    // True when a living same-map HEALER sits below `minMpPct` mana out of
+    // combat — i.e. it is drinking / regenerating back up. The advance yield's
+    // 60s release does not fire through this (or a corpse); see
+    // DC_PARTY_YIELD_HARD_MAX_MS.
+    static bool IsHealerBelowManaFloor(Player* bot, float minMpPct, std::string* whoOut = nullptr);
 
     // The effective inputs of the between-pulls spread check for `bot` right now:
     // the live PartyMaxSpread (waived to "infinite" while a pull maneuver is

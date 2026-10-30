@@ -17,7 +17,7 @@ void FrostMageStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
     MageStrategy::InitCombatTriggers(triggers);
 
     triggers.push_back(new TriggerNode(
-        "enemy is close",
+        "enemy ten yards targeting bot",
         NextAction::array(0, new NextAction("frost nova", ACTION_HIGH + 1), NULL)));
 
     triggers.push_back(new TriggerNode(

@@ -29,7 +29,8 @@ private:
 
     ACTION_NODE_A(devastate, "devastate", "sunder armor");
 
-    ACTION_NODE_A(last_stand, "last stand", "intimidating shout");
+    // A fearing tank scatters its own pull; fall back to Shield Wall instead.
+    ACTION_NODE_A(last_stand, "last stand", "shield wall");
 
     ACTION_NODE_A(heroic_throw_on_snare_target, "heroic throw on snare target", "taunt on snare target");
 

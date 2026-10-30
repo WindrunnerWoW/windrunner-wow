@@ -651,17 +651,50 @@ DungeonClearMath::ChaseVerdict DcEngageGeometry::ChaseLeash(Player* bot,
     if (!bot || !ctx || !target)
         return ChaseVerdict::Follow;
 
+    DcApproachState& appr = ctx->GetValue<DcApproachState&>(DcKey::ApproachState)->Get();
+
+    // A FLEEING in-combat mob is the exception to the run-it-down rule below: a
+    // low-HP runner isn't chewing on anyone, it is going for help, and the tank
+    // or a melee chasing it arrives in the next pack with it. Leash melee to a
+    // short radius around where the flee began; ranged may finish it from there.
+    {
+        constexpr float DC_FLEE_LEASH_YD = 12.0f;
+        MovementGeneratorType const mt = target->GetMotionMaster()->GetCurrentMovementGeneratorType();
+        bool const fleeing = target->IsInCombat() &&
+                             (target->HasUnitState(UNIT_STAT_FLEEING) ||
+                              mt == FLEEING_MOTION_TYPE || mt == TIMED_FLEEING_MOTION_TYPE);
+        if (fleeing)
+        {
+            if (appr.fleeTarget != target->GetObjectGuid())
+            {
+                appr.fleeTarget = target->GetObjectGuid();
+                appr.fleeAnchor = target->GetPosition();
+            }
+            PlayerbotAI* botAI = GET_PLAYERBOT_AI(bot);
+            bool const ranged = botAI && botAI->IsRanged(bot);
+            if (!ranged && target->GetExactDist2d(&appr.fleeAnchor) > DC_FLEE_LEASH_YD)
+            {
+                DC_PULL_DEBUG("[DC:{}] flee leash: {} ran {:.1f}yd from where it broke "
+                              "-> HOLD, not chasing it into the next pack",
+                              bot->GetName(), target->GetObjectGuid().ToString(),
+                              target->GetExactDist2d(&appr.fleeAnchor));
+                return ChaseVerdict::Hold;
+            }
+            return ChaseVerdict::Follow;
+        }
+        if (appr.fleeTarget == target->GetObjectGuid())
+            appr.fleeTarget.Clear();
+    }
+
     float const leash = DcSettings::GetFloat(bot, "PullChaseLeash");
     if (leash <= 0.0f)
         return ChaseVerdict::Follow;
 
     // A mob already in combat is a fight, not a pull: whatever it is doing (kiting
-    // a follower, fleeing at low HP) the tank has to run it down, and holding for
-    // it to "come back" would abandon the party member it is chewing on.
+    // a follower) the tank has to run it down, and holding for it to "come back"
+    // would abandon the party member it is chewing on. Fleeing is handled above.
     if (target->IsInCombat())
         return ChaseVerdict::Follow;
-
-    DcApproachState& appr = ctx->GetValue<DcApproachState&>(DcKey::ApproachState)->Get();
 
     // First walk at this pack: anchor to the ground the plan was made against and
     // let this tick through untouched.

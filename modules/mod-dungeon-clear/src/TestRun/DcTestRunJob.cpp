@@ -879,8 +879,12 @@ void DcTestRunJob::TickProvisioning(bool& provisionBudget)
     // feral tank; warrior/paladin tanks worked because their default
     // strategy set already carries "tank"). ResetStrategies applies
     // m_forcedRole last, dungeon-finder style, for every rebuild from here.
+    // Role values are the BotRoles bits (tank 1, healer 2, dps 4) - the same
+    // ones LFG and the BG filler hand to SetForcedRole. dps used to be 3,
+    // which reads as tank|healer to anything testing role bits.
     if (PlayerbotAI* slotAi = GetBotAI(bot))
-        slotAi->SetForcedRole(slot.role == "tank" ? 1 : (slot.role == "heal" ? 2 : 3));
+        slotAi->SetForcedRole(uint8(slot.role == "tank" ? ai::BOT_ROLE_TANK
+                                    : (slot.role == "heal" ? ai::BOT_ROLE_HEALER : ai::BOT_ROLE_DPS)));
 
     // Shield this login from the random holder's add-event logout policy for
     // the run's lifetime (see RandomPlayerbotMgr::SetExternallyManaged).

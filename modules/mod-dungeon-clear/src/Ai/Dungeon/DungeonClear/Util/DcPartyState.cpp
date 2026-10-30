@@ -110,12 +110,17 @@ bool DcPartyState::IsPartyReady(Player* bot, float minHpPct, float minMpPct, flo
         if (member->GetMapId() != bot->GetMapId())
             continue;
         if (member->isDead())
-            continue;  // Dead members hold the run via DcRezRecovery::IsPending
-                       // (or, with PostCombatRez off / recovery unviable, the
-                       // party-died bailout) — never via these readiness floors.
-                       // The moment one is rezzed they re-enter this walk as a
-                       // living-but-low member and the floors hold the tank
-                       // while they eat/drink back up.
+        {
+            // A rest/readiness check (any HP floor asked for) is never "ready"
+            // with a corpse on the map: walking on a member short is how the
+            // next pull wipes. DcRezRecovery / the party-died bailout still
+            // own resolving it, and the advance yield's hard cap keeps a corpse
+            // nobody can raise from freezing the run. Pure spread checks (HP
+            // floor 0) skip the dead - a corpse is not "lagging behind".
+            if (minHpPct > 0.0f)
+                return false;
+            continue;
+        }
 
         if (member != bot)
         {
@@ -131,7 +136,9 @@ bool DcPartyState::IsPartyReady(Player* bot, float minHpPct, float minMpPct, flo
         }
         if (member->GetHealthPct() < minHpPct)
             return false;
-        if (member->getPowerType() == POWER_MANA)
+        // Any member with a mana pool, whatever its CURRENT power type: a druid
+        // in bear/cat form reports rage/energy but its mana is still what it
+        // heals with after the pull.
         {
             uint32 const maxMp = member->GetMaxPower(POWER_MANA);
             if (maxMp > 0)
@@ -410,6 +417,33 @@ bool DcPartyState::HasDeadSameMapMember(Player* bot)
     return false;
 }
 
+bool DcPartyState::IsHealerBelowManaFloor(Player* bot, float minMpPct, std::string* whoOut)
+{
+    if (!bot || minMpPct <= 0.0f)
+        return false;
+    Group* group = bot->GetGroup();
+    if (!group)
+        return false;
+    for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
+    {
+        Player* member = ref->GetSource();
+        if (!member || !member->IsAlive() || member->GetMapId() != bot->GetMapId())
+            continue;
+        if (member->IsInCombat() || !PlayerbotAI::IsHeal(member))
+            continue;
+        uint32 const maxMp = member->GetMaxPower(POWER_MANA);
+        if (!maxMp)
+            continue;
+        if (100.0f * float(member->GetPower(POWER_MANA)) / float(maxMp) < minMpPct)
+        {
+            if (whoOut)
+                *whoOut = member->GetName();
+            return true;
+        }
+    }
+    return false;
+}
+
 bool DcPartyState::IsAnyPartyMemberLooting(Player* bot, std::string* whoOut)
 {
     if (!bot)
@@ -503,22 +537,24 @@ std::string DcPartyState::DescribePartyNotReady(Player* bot,
             continue;
         if (member->GetMapId() != bot->GetMapId())
             continue;
-        if (member->isDead())
-            continue;  // Dead members are the rez recovery's to report, not a
-                       // readiness reason (mirrors IsPartyReady's skip).
-
         // Mirror IsPartyReady's checks, but record the limiting reason. Order
         // matters only for which single reason we surface first; distance reads
         // most intuitively, then health, then mana.
         std::string reason;
-        if (member != bot &&
+        if (member->isDead())
+        {
+            if (minHpPct <= 0.0f)
+                continue;  // spread-only check skips the dead (as IsPartyReady)
+            reason = "dead";
+        }
+        else if (member != bot &&
             ((spreadAnchor ? member->GetDistance(*spreadAnchor)
                            : bot->GetDistance(member)) > maxSpread ||
              (maxTankGap > 0.0f && bot->GetDistance(member) > maxTankGap)))
             reason = "out of range";
         else if (member->GetHealthPct() < minHpPct)
             reason = "low HP";
-        else if (member->getPowerType() == POWER_MANA)
+        else  // any mana pool, shapeshifted or not (as IsPartyReady)
         {
             uint32 const maxMp = member->GetMaxPower(POWER_MANA);
             if (maxMp > 0)

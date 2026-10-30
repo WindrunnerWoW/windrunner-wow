@@ -19,10 +19,14 @@ public:
         creators["renew"] = &renew;
         creators["renew on party"] = &renew_on_party;
         creators["resurrection"] = &resurrection;
+        creators["smite"] = &smite;
     }
 
 private:
     ACTION_NODE_A(abolish_disease, "abolish disease", "cure disease");
+
+    // Offdps filler: wand when Smite can't be cast.
+    ACTION_NODE_A(smite, "smite", "shoot");
 
     ACTION_NODE_A(abolish_disease_on_party, "abolish disease on party", "cure disease on party");
 
@@ -326,7 +330,7 @@ void PriestCcStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         NextAction::array(0, new NextAction("shackle undead", ACTION_INTERRUPT), NULL)));
 
     triggers.push_back(new TriggerNode(
-        "enemy five yards",
+        "enemy five yards targeting bot",
         NextAction::array(0, new NextAction("psychic scream", ACTION_INTERRUPT), NULL)));
 }
 
@@ -618,8 +622,8 @@ void PriestOffdpsStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         NextAction::array(0, new NextAction("smite", ACTION_NORMAL + 1), NULL)));
 
     triggers.push_back(new TriggerNode(
-        "no mana",
-        NextAction::array(0, new NextAction("shoot", ACTION_NORMAL), NULL)));
+        "low mana",
+        NextAction::array(0, new NextAction("shoot", ACTION_NORMAL + 4), NULL)));
 }
 
 void PriestOffdpsStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -903,7 +907,7 @@ void PriestCcStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         NextAction::array(0, new NextAction("shackle undead", ACTION_INTERRUPT), NULL)));
 
     triggers.push_back(new TriggerNode(
-        "enemy five yards",
+        "enemy five yards targeting bot",
         NextAction::array(0, new NextAction("psychic scream", ACTION_INTERRUPT), NULL)));
 }
 
@@ -1199,8 +1203,8 @@ void PriestOffdpsStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         NextAction::array(0, new NextAction("smite", ACTION_NORMAL + 1), NULL)));
 
     triggers.push_back(new TriggerNode(
-        "no mana",
-        NextAction::array(0, new NextAction("shoot", ACTION_NORMAL), NULL)));
+        "low mana",
+        NextAction::array(0, new NextAction("shoot", ACTION_NORMAL + 4), NULL)));
 }
 
 void PriestOffdpsStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)
@@ -1480,7 +1484,7 @@ void PriestCcStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         NextAction::array(0, new NextAction("shackle undead", ACTION_INTERRUPT), NULL)));
 
     triggers.push_back(new TriggerNode(
-        "enemy five yards",
+        "enemy five yards targeting bot",
         NextAction::array(0, new NextAction("psychic scream", ACTION_INTERRUPT), NULL)));
 }
 
@@ -1772,8 +1776,8 @@ void PriestOffdpsStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)
         NextAction::array(0, new NextAction("smite", ACTION_NORMAL + 1), NULL)));
 
     triggers.push_back(new TriggerNode(
-        "no mana",
-        NextAction::array(0, new NextAction("shoot", ACTION_NORMAL), NULL)));
+        "low mana",
+        NextAction::array(0, new NextAction("shoot", ACTION_NORMAL + 4), NULL)));
 }
 
 void PriestOffdpsStrategy::InitNonCombatTriggers(std::list<TriggerNode*>& triggers)

@@ -432,8 +432,11 @@ enum AuctionHouseType {
 #endif
 
 // === SPELL_ATTR_USES_RANGED_SLOT (cmangos) ===
+// Vanilla spells mark ranged-slot abilities with SPELL_ATTR_RANGED (0x2).
+// Must alias the enum value: a plain int literal resolves to the catch-all
+// SpellEntry::HasAttribute(int) overload, which always returns false.
 #ifndef SPELL_ATTR_USES_RANGED_SLOT
-#define SPELL_ATTR_USES_RANGED_SLOT 0x00000010
+#define SPELL_ATTR_USES_RANGED_SLOT SPELL_ATTR_RANGED
 #endif
 
 // === BG_AV_NODE_STATUS_NEUTRAL_OCCUPIED ===

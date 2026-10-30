@@ -13,6 +13,64 @@
 using namespace ai;
 using namespace MaNGOS;
 
+namespace
+{
+    bool IsFreeAttacker(Unit* unit, Player* bot)
+    {
+        return unit && unit->IsAlive() && unit->IsInWorld() && unit->GetMapId() == bot->GetMapId() &&
+               !PossibleAttackTargetsValue::HasBreakableCC(unit, bot) &&
+               !PossibleAttackTargetsValue::HasUnBreakableCC(unit, bot);
+    }
+
+    bool IsFightingFreeMob(Player* member, Player* bot)
+    {
+        for (Unit* attacker : member->getAttackers())
+        {
+            if (IsFreeAttacker(attacker, bot))
+                return true;
+        }
+
+        if (Pet* pet = member->GetPet())
+        {
+            for (Unit* attacker : pet->getAttackers())
+            {
+                if (IsFreeAttacker(attacker, bot))
+                    return true;
+            }
+        }
+
+        return false;
+    }
+
+    // A crowd-controlled mob is only a fallback target once it is truly the
+    // last one: while anyone nearby still fights an uncontrolled mob, breaking
+    // the CC just adds a second attacker.
+    bool AnyGroupMemberFightingFreeMob(Player* bot)
+    {
+        if (IsFightingFreeMob(bot, bot))
+            return true;
+
+        Group* group = bot->GetGroup();
+        if (!group)
+            return false;
+
+        for (GroupReference* ref = group->GetFirstMember(); ref; ref = ref->next())
+        {
+            Player* member = ref->getSource();
+            if (!member || member == bot || !member->IsAlive() || member->GetMapId() != bot->GetMapId())
+                continue;
+
+            if (sServerFacade.GetDistance2d(bot, member) > sPlayerbotAIConfig.sightDistance)
+                continue;
+
+            if (IsFightingFreeMob(member, bot))
+                return true;
+        }
+
+        return false;
+    }
+}
+
 std::list<ObjectGuid> PossibleAttackTargetsValue::Calculate()
 {
     std::list<ObjectGuid> result;
@@ -89,6 +147,14 @@ void PossibleAttackTargetsValue::RemoveNonThreating(std::list<ObjectGuid>& targe
             }
         }
     }
+
+    // The single-attacker query only saw one mob; never fall back to CC from
+    // it. Calculate() retries with the full attacker list.
+    if (targets.empty() && getOne)
+        return;
+
+    if (targets.empty() && (!unBreakableCC.empty() || !breakableCC.empty()) && AnyGroupMemberFightingFreeMob(bot))
+        return;
 
     if (targets.empty())
     {

@@ -47,6 +47,18 @@ namespace DcStrandedRecovery
     // announce. Called by the action after Evaluate returned true. Safe to call
     // on any bot; no-ops unless `leader` is the elected leader.
     void Recover(Player* leader);
+
+    // FALL GUARD - the last line of defence against a bot that clipped through a
+    // floor or wall. Called every Player::Update for every bot (on its own map
+    // thread), throttled internally; inert unless the bot is in a dungeon-clear
+    // run on an instance map. Records the last spot the bot stood alive on real
+    // ground; when the bot is found under the floor (a surface above, nothing
+    // at its feet), in the void (no surface below at all), or more than ~12yd
+    // under its last safe Z while airborne, it stops the bot, clears its fall
+    // state, near-teleports it back to that spot and resets its DC path
+    // follower. Planned drops (DropInHole / Jump / TeleportParty steps, a
+    // knockback in flight) are exempt. Rate-limited and logged.
+    void FallGuard(Player* bot);
 }
 
 #endif  // _PLAYERBOT_DCSTRANDEDRECOVERY_H

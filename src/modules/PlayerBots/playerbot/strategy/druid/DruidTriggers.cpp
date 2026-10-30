@@ -2,6 +2,7 @@
 #include "playerbot/playerbot.h"
 #include "DruidTriggers.h"
 #include "DruidActions.h"
+#include "playerbot/strategy/InstanceSafety.h"
 
 using namespace ai;
 
@@ -9,6 +10,10 @@ bool EntanglingRootsKiteTrigger::IsActive()
 { 
 	if (!DebuffTrigger::IsActive())
 		return false;
+
+    // Kiting a rooted mob away from the tank breaks dungeon pulls.
+    if (InstanceSafety::IsActive(bot))
+        return false;
 
     if (AI_VALUE(uint8, "attackers count") > 3)
         return false;

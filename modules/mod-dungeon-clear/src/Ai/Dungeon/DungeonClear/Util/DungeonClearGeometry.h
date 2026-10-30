@@ -26,11 +26,10 @@ namespace DungeonClearGeometry
     float Dist3D(float ax, float ay, float az, float bx, float by, float bz);
 
     // True iff the bot has a clear static-VMAP straight line between two world
-    // points. Sub-3yd hops are treated as clear (they're Detour smoothing
-    // artifacts the producers also skip). A null map fails open (clear) so the
-    // check never blocks routing when geometry can't be queried. The raycast is
-    // bumped to ~eye height so floor-touching points don't false-fail on
-    // slope/stair transitions.
+    // points. Every chord is cast, however short. A null map fails open (clear)
+    // so the check never blocks routing when geometry can't be queried. The
+    // raycast is bumped to ~eye height so floor-touching points don't false-fail
+    // on slope/stair transitions.
     bool ChordClear(Player* bot, G3D::Vector3 const& a, G3D::Vector3 const& b);
 
     // Walks the smoothed polyline's consecutive chords with ChordClear and
@@ -40,15 +39,21 @@ namespace DungeonClearGeometry
     //
     // On a sustained obstruction it returns the length of the clean prefix so
     // the caller can still use the verified part and re-probe from its end.
-    // Isolated blocked chords (corner grazes on sharp convex bends) are tolerated
-    // up to a small consecutive-failure bridge; a clear chord resets the run. A
-    // genuinely bad poly bridging two rooms through solid geometry fails for a
-    // longer continuous run and truncates the corridor there.
+    // A single blocked chord (a corner graze on a sharp convex bend) is bridged;
+    // a clear chord resets the run. Two in a row truncate. A chord whose END
+    // vertex has no real ground under it (Map::GetHeight, incl. GO models,
+    // within ~2yd; swim vertices exempt) counts as blocked too.
     //
     // Static-VMAP-only (no game-object checks): doors and dynamic obstacles are
     // handled elsewhere (DungeonClearBlockingDoorValue / engage triggers), and
     // including them here would reject good corridors with a transient door.
     std::size_t LosCleanPrefixCount(Player* bot, std::vector<G3D::Vector3> const& pts);
+
+    // Unit::UpdateAllowedPositionZ, but trusting the navmesh Z it was handed:
+    // the static height probe looks DOWN, so under a bridge, balcony or stacked
+    // floor it answers with the level below (or under the map). Keep the
+    // snapped Z only when it moved the point by at most `maxDelta` yards.
+    void ClampedAllowedZ(Player* bot, G3D::Vector3& p, float maxDelta = 1.5f);
 
     // Apply the liquid-avoidance Detour area-cost multipliers (WaterPathCost,
     // MagmaPathCost) to a freshly-built filter so the A* corridor search and the

@@ -10,7 +10,7 @@ using namespace ai;
 
 ai::NextAction** DestructionWarlockStrategy::GetDefaultCombatActions()
 {
-    return NextAction::array(0, new NextAction("shadow bolt", ACTION_IDLE), NULL);
+    return NextAction::array(0, new NextAction("shadow bolt", ACTION_IDLE), new NextAction("shoot", ACTION_IDLE - 0.5f), NULL);
 }
 
 void DestructionWarlockStrategy::InitCombatTriggers(std::list<TriggerNode*>& triggers)

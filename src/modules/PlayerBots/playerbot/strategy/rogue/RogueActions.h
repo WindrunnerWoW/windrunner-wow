@@ -318,6 +318,14 @@ namespace ai
     {
     public:
         CastGougeAction(PlayerbotAI* ai) : CastComboAction(ai, "gouge") {}
+
+        // Gouge drops the target's threat on the rogue only; gouging the
+        // tank's mob just makes it wander. Use it purely as self-defence.
+        virtual bool isUseful() override
+        {
+            Unit* target = AI_VALUE(Unit*, "current target");
+            return target && target->GetVictim() == bot && CastComboAction::isUseful();
+        }
     };
 
     class CastBackstabAction : public CastComboAction

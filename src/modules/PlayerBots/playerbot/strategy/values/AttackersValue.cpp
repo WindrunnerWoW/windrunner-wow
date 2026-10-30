@@ -58,12 +58,19 @@ std::list<ObjectGuid> AttackersValue::Calculate()
             if (sServerFacade.GetDistance2d(bot, player) > 10.0f)
                 continue;
 
+            // Only share inside the same group: a neighbour's list was built
+            // from its own group's combat and must not pull this bot into it.
+            if (!bot->GetGroup() || player->GetGroup() != bot->GetGroup())
+                continue;
+
             PlayerbotAI* botAi = GetBotAI(player);
 
             if (!botAi)
                 continue;
 
-            std::string valueName = "attackers" + !qualifier.empty() ? "::" + qualifier : "";
+            // Parenthesised: the old expression did pointer arithmetic on the
+            // literal and always produced "::<qualifier>", so sharing never ran.
+            std::string valueName = "attackers" + (qualifier.empty() ? std::string() : "::" + qualifier);
 
             // Ignore bots without the value.
             if (!PHAS_AI_VALUE(valueName))
@@ -93,35 +100,46 @@ std::list<ObjectGuid> AttackersValue::Calculate()
             std::vector<std::string> specificTargetNames = { "current target","old target","attack target","pull target" };
             Unit* target;
 
-            //Remove bot specific targets of the other bot.
-            for (auto& targetName : specificTargetNames)
-            {
-                target = (targetName == "attack target") ? ai->GetUnit(PAI_VALUE(ObjectGuid, targetName)) : PAI_VALUE(Unit*, targetName);
-                if (target)
-                    result.remove(target->GetObjectGuid());
-            }
-
-            //Add bot specific targets of this bot.
-            for (auto& targetName : specificTargetNames)
-            {
-                target = (targetName == "attack target") ? ai->GetUnit(AI_VALUE(ObjectGuid, targetName)) : AI_VALUE(Unit*, targetName);
-                if (target)
-                    result.push_back(target->GetObjectGuid());
-            }
-
-            //Validate these targets.
+            //Validate the shared targets against the group's actual combat.
+            //The source's own "current/old/pull/attack target" exceptions are
+            //dropped by this (no pull exception for other players), while a
+            //mob that only a group member is fighting is kept. Checking combat
+            //against this bot alone would drop every such add.
+            Group* group = bot->GetGroup();
             std::list<ObjectGuid> filter;
 
             for (auto& guid : result)
             {
                 target = ai->GetUnit(guid);
 
-                if (!IsValid(target, bot, bot))
+                bool valid = target && ai->IsSafe(target) && IsValid(target, bot, bot, false);
+                if (valid)
+                {
+                    valid = InCombat(target, bot);
+                    for (GroupReference* ref = group->GetFirstMember(); ref && !valid; ref = ref->next())
+                    {
+                        Player* member = ref->getSource();
+                        if (member && member != bot && member->IsInWorld() && member->GetMapId() == bot->GetMapId())
+                            valid = InCombat(target, member, false);
+                    }
+                }
+
+                if (!valid)
                     filter.push_back(guid);
             }
 
             for(auto& guid : filter)
                 result.remove(guid);
+
+            //Add bot specific targets of this bot (full validation, so a stale
+            //own target cannot latch combat).
+            for (auto& targetName : specificTargetNames)
+            {
+                target = (targetName == "attack target") ? ai->GetUnit(AI_VALUE(ObjectGuid, targetName)) : AI_VALUE(Unit*, targetName);
+                if (target && ai->IsSafe(target) && IsValid(target, bot, bot) &&
+                    std::find(result.begin(), result.end(), target->GetObjectGuid()) == result.end())
+                    result.push_back(target->GetObjectGuid());
+            }
 
             return result;
         }

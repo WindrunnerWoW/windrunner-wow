@@ -14,6 +14,14 @@ namespace ai
         virtual Unit* Calculate() override;
         bool CanHealPet(Pet* pet);
         virtual bool Check(Unit* player);
+        bool Check(Unit* player, float maxDist);
+
+        // Range at which the heal can actually be cast from where the bot stands.
+        float GetHealDistance();
+        // Wider radius for group members the healer should walk over to: the
+        // heal action's reach prerequisite closes the gap, the cast itself is
+        // still limited to spell range.
+        float GetReachDistance();
 
     private:
         std::vector<Player*> GetPartyMembers();

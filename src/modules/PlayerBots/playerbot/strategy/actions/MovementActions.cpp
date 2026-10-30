@@ -726,10 +726,41 @@ TravelPath MovementAction::ResolveMovePath(const WorldPosition& startPosition, c
     if (!lastMove.lastPath.empty() && !outMovePath.empty() && lastMove.lastPath.getBack().distance(endPosition) <= outMovePath.getBack().distance(endPosition))
         outMovePath = lastMove.lastPath;
 
-    if (outMovePath.empty())
+    // No route found. Overworld keeps the old straight-line fallback; inside an
+    // instance that line runs through walls and off ledges, so hand back the
+    // empty path and let MoveTo2 refuse the move instead.
+    if (outMovePath.empty() && !IsOnDungeonMap())
         outMovePath.addPoint(endPosition);
 
     return outMovePath;
+}
+
+bool MovementAction::IsOnDungeonMap() const
+{
+    return bot && bot->IsInWorld() && bot->GetMap() && bot->GetMap()->IsDungeon();
+}
+
+bool MovementAction::MoveTo(uint32 mapId, float x, float y, float z, bool idle, bool react,
+                            bool normal_only, bool /*exact_waypoint*/,
+                            MovementPriority /*priority*/, bool /*lessDelay*/, bool /*backwards*/)
+{
+    // normal_only: accept the move only when the navmesh gives a complete
+    // route to the spot. Probed up front so a partial / shortcut path never
+    // gets as far as a spline.
+    if (normal_only && bot->GetMapId() == mapId)
+    {
+        PathFinder probe(bot);
+        probe.calculate(x, y, z, false);
+        PathType const type = probe.getPathType();
+        bool accepted = type == PATHFIND_NORMAL;
+        // Swimming and mmap-less maps report NORMAL|NOT_USING_PATH; that is a
+        // straight line, which is only acceptable outside instances.
+        if (!accepted && !IsOnDungeonMap())
+            accepted = type == PathType(PATHFIND_NORMAL | PATHFIND_NOT_USING_PATH);
+        if (!accepted)
+            return false;
+    }
+    return MoveTo(mapId, x, y, z, idle, react, false);
 }
 
 bool MovementAction::HandleSpecialMovement(TravelPath& path)
@@ -990,7 +1021,10 @@ void MovementAction::DispatchMovement(TravelPath movePath, bool generatePath, bo
         // crawl slower than walking. Translate the intent into proper MoveOptions instead and
         // leave speed at its default so it is derived from the run/walk movement flags.
         uint32 moveOptions = (moveMode == FORCED_MOVEMENT_WALK) ? MOVE_WALK_MODE : MOVE_RUN_MODE;
-        if (generatePath)
+        // The point generator stays under the MovePath spline below and
+        // re-launches itself on a speed change; without pathfinding that
+        // re-launch is a straight line, so in an instance it always routes.
+        if (generatePath || IsOnDungeonMap())
             moveOptions |= MOVE_PATHFINDING;
         mm.MovePoint(movePosition.getMapId(),
             movePosition.getX(),
@@ -1005,6 +1039,8 @@ void MovementAction::DispatchMovement(TravelPath movePath, bool generatePath, bo
             bot->IsFlying());
 #endif
     }
+
+    bool const dungeon = IsOnDungeonMap();
 
     GeneratePathAvoidingHazards(path);
 
@@ -1021,7 +1057,13 @@ void MovementAction::DispatchMovement(TravelPath movePath, bool generatePath, bo
         {
             if (bot->GetTransport())
                 bot->GetTransport()->CalculatePassengerPosition(p.x, p.y, p.z);
+            // In an instance the navmesh Z is the truth: a static height
+            // probe under a bridge or balcony lands on the floor below (or
+            // under the map), so only accept a small correction there.
+            float const meshZ = p.z;
             bot->UpdateAllowedPositionZ(p.x, p.y, p.z);
+            if (dungeon && fabs(p.z - meshZ) > 1.5f)
+                p.z = meshZ;
             if (bot->GetTransport())
                 bot->GetTransport()->CalculatePassengerOffset(p.x, p.y, p.z);
         }
@@ -1219,7 +1261,9 @@ bool MovementAction::MoveTo2(const WorldPosition& endPos, bool idle, bool react,
             ai->InterruptSpell(false);
     }
 
-    if (totalDistance > sPlayerbotAIConfig.reactDistance && !detailedMove)
+    // Never on an instance map: the path end there can sit under the floor or
+    // past a wall the route never actually crossed, and the bot lands in it.
+    if (totalDistance > sPlayerbotAIConfig.reactDistance && !detailedMove && !IsOnDungeonMap())
     {
         WorldPosition teleportPosition = movePath.getBack();
         // Only skip the walk animation via a hard teleport if nobody is
@@ -1252,7 +1296,9 @@ bool MovementAction::MoveTo2(const WorldPosition& endPos, bool idle, bool react,
         }
     }
 
-    bool generatePath = !noPath && !bot->IsFlying() && !bot->HasMovementFlag(MOVEFLAG_SWIMMING) && !bot->IsInWater() && !sServerFacade.IsUnderwater(bot);
+    // Inside an instance a ground move always routes - a noPath straight leg is
+    // how bots clip through walls and floors there.
+    bool generatePath = (!noPath || IsOnDungeonMap()) && !bot->IsFlying() && !bot->HasMovementFlag(MOVEFLAG_SWIMMING) && !bot->IsInWater() && !sServerFacade.IsUnderwater(bot);
 
 #ifndef MANGOSBOT_ZERO
     if (bot->IsFreeFlying())
@@ -2584,6 +2630,35 @@ WorldPosition CalculatePerpendicularPoint(const WorldPosition& A, const WorldPos
     return B + (perpendicularDirection * offset);
 }
 
+bool MovementAction::IsFleeLeashBroken(Unit* target)
+{
+    // Leash radius around the spot the chase began; ranged may still finish
+    // the mob from where they stand, so only melee is held back.
+    constexpr float FLEE_LEASH_YD = 12.0f;
+
+    if (!target || target->IsPlayer() || !IsOnDungeonMap() || ai->IsRanged(bot))
+        return false;
+
+    MovementGeneratorType const mt = target->GetMotionMaster()->GetCurrentMovementGeneratorType();
+    bool const fleeing = target->HasUnitState(UNIT_STAT_FLEEING) ||
+                         mt == FLEEING_MOTION_TYPE || mt == TIMED_FLEEING_MOTION_TYPE;
+    if (!fleeing)
+    {
+        if (fleeLeashTarget == target->GetObjectGuid())
+            fleeLeashTarget.Clear();
+        return false;
+    }
+
+    if (fleeLeashTarget != target->GetObjectGuid())
+    {
+        fleeLeashTarget = target->GetObjectGuid();
+        fleeLeashX = bot->GetPositionX();
+        fleeLeashY = bot->GetPositionY();
+    }
+
+    return sServerFacade.GetDistance2d(target, fleeLeashX, fleeLeashY) > FLEE_LEASH_YD;
+}
+
 bool MovementAction::ChaseTo(WorldObject* obj, float distance, float angle)
 {
     if (!ai->CanMove())
@@ -2595,6 +2670,16 @@ bool MovementAction::ChaseTo(WorldObject* obj, float distance, float angle)
     if (!ai->IsSafe(obj))
     {
         sLog.outDetail("[BOT CHASE] %s: IsSafe() blocked", bot->GetName());
+        return false;
+    }
+
+    if (obj && obj->isType(TYPEMASK_UNIT) && sServerFacade.IsHostileTo(bot, (Unit*)obj) &&
+        IsFleeLeashBroken((Unit*)obj))
+    {
+        // Let it run; it comes back with friends or dies to ranged, either
+        // of which is better than melee following it into the next room.
+        if (bot->GetMotionMaster()->GetCurrentMovementGeneratorType() == CHASE_MOTION_TYPE)
+            ai->StopMoving();
         return false;
     }
 
@@ -2967,7 +3052,9 @@ bool MovementAction::Flee(Unit *target)
         succeeded = MoveNear(fleeTarget);
     }
 
-    if (!ai->HasRealPlayerMaster() && !ai->IsRealPlayer(target))
+    // Only when the flee-to-friend move above failed: a MoveChase here would
+    // throw away the route the bot was just sent on.
+    if (!succeeded && !ai->HasRealPlayerMaster() && !ai->IsRealPlayer(target))
     {
         bool fullDistance = false;
         if (target->IsPlayer())
@@ -3497,6 +3584,10 @@ bool TankFaceAction::isUseful()
             continue;
         if (ai->IsTank(member))
             continue;
+        // Melee stand on the mob, so they say nothing about where the cleave
+        // and breath should point; only the back line does.
+        if (!ai->IsHeal(member) && !ai->IsRanged(member))
+            continue;
         if (sServerFacade.GetDistance2d(target, member) > sPlayerbotAIConfig.sightDistance)
             continue;
 
@@ -3536,6 +3627,10 @@ bool TankFaceAction::Execute(Event& event)
             continue;
         if (ai->IsTank(member))
             continue;
+        // Melee stand on the mob, so they say nothing about where the cleave
+        // and breath should point; only the back line does.
+        if (!ai->IsHeal(member) && !ai->IsRanged(member))
+            continue;
         if (sServerFacade.GetDistance2d(target, member) > sPlayerbotAIConfig.sightDistance)
             continue;
 
@@ -3557,7 +3652,27 @@ bool TankFaceAction::Execute(Event& event)
     float x = target->GetPositionX() + cos(faceAngle) * dist;
     float y = target->GetPositionY() + sin(faceAngle) * dist;
     float z = target->GetPositionZ();
+    float const targetZ = z;
     bot->UpdateAllowedPositionZ(x, y, z);
+    if (IsOnDungeonMap() && fabs(z - targetZ) > 1.5f)
+        z = targetZ;   // the static probe fell to another floor - stay on the mob's
+
+    // Don't reposition toward a pack that isn't in the fight yet: stepping
+    // round the mob is never worth pulling the next group.
+    {
+        std::list<ObjectGuid> possible = AI_VALUE(std::list<ObjectGuid>, "possible targets no los");
+        for (ObjectGuid const& guid : possible)
+        {
+            Unit* unit = ai->GetUnit(guid);
+            if (!unit || unit == target || !unit->IsAlive() || unit->IsInCombat() || unit->IsPlayer())
+                continue;
+            if (sServerFacade.IsFriendlyTo(bot, unit))
+                continue;
+            float const toDest = sServerFacade.GetDistance2d(unit, x, y);
+            if (toDest < 20.0f && toDest < sServerFacade.GetDistance2d(bot, unit))
+                return false;
+        }
+    }
 
     float ox, oy, oz;
     target->GetPosition(ox, oy, oz);

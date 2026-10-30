@@ -18,6 +18,7 @@
 #include "Ai/Dungeon/DungeonClear/Util/DcStatusPublisher.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcStrandedDecision.h"
 #include "Ai/Dungeon/DungeonClear/Util/DcTargeting.h"
+#include "Ai/Dungeon/DungeonClear/Util/DungeonPathFollower.h"
 
 #include <cmath>
 #include <optional>
@@ -29,6 +30,7 @@
 #include "Group.h"
 #include "InstanceScript.h"
 #include "Log.h"
+#include "Map.h"
 #include "MotionMaster.h"
 #include "Player.h"
 #include "PlayerbotAI.h"
@@ -41,6 +43,58 @@ namespace
     // this much versus its closest-ever approach to count as progress. Matches the
     // harness livelock net so the two agree on what "closing distance" means.
     constexpr float DC_STRANDED_PROGRESS_EPSILON_YD = 1.0f;
+
+    // Fall guard tuning (see DcStrandedRecovery::FallGuard).
+    constexpr uint32 DC_FALL_GUARD_CHECK_MS     = 250;    // per-bot probe cadence
+    constexpr float  DC_FALL_GUARD_SAFE_TOL_YD  = 1.0f;   // "standing on ground"
+    constexpr float  DC_FALL_GUARD_SUNK_YD      = 3.0f;   // surface this far above = under the floor
+    constexpr float  DC_FALL_GUARD_DROP_YD      = 12.0f;  // airborne this far under the last safe Z
+    constexpr uint32 DC_FALL_GUARD_SUNK_MS      = 500;    // under-floor must persist this long
+    constexpr uint32 DC_FALL_GUARD_COOLDOWN_MS  = 2000;   // between two snap-backs
+    constexpr uint32 DC_FALL_GUARD_BURST_MS     = 30000;  // burst window ...
+    constexpr uint32 DC_FALL_GUARD_BURST_MAX    = 5;      // ... and its snap-back budget
+
+    // Can this spot be teleported to? The recorded safe position was ground when
+    // stamped, but a door/GO can have closed over it since; re-ask the world.
+    bool LandingIsGrounded(Map const* map, float x, float y, float z)
+    {
+        return NavmeshSnap::HasGround(map, x, y, z, 2.0f);
+    }
+
+    // Where to put a bot that has to be teleported back onto the floor. The
+    // bot's OWN last safe spot first (the fall guard's record: real ground it
+    // stood on moments ago, nearby, same instance), then the tall-column mesh
+    // snap - but only if real ground agrees with it, because the column happily
+    // answers with a phantom deck or the floor of a sealed shaft. False when
+    // neither is trustworthy: better to leave the bot than drop it somewhere
+    // worse.
+    bool PickRescueLanding(Player* p, NavmeshSnap::Result const& column,
+                           float& outX, float& outY, float& outZ)
+    {
+        Map const* map = p->GetMap();
+        if (PlayerbotAI* ai = GET_PLAYERBOT_AI(p))
+        {
+            DcRunState const& s = DcRun::Of(ai);
+            if (s.safeValid && s.safeMapId == p->GetMapId() &&
+                s.safeInstanceId == p->GetInstanceId() &&
+                std::hypot(s.safeX - p->GetPositionX(), s.safeY - p->GetPositionY()) < 60.0f &&
+                LandingIsGrounded(map, s.safeX, s.safeY, s.safeZ))
+            {
+                outX = s.safeX;
+                outY = s.safeY;
+                outZ = s.safeZ;
+                return true;
+            }
+        }
+        if (column.ok && LandingIsGrounded(map, column.x, column.y, column.z))
+        {
+            outX = column.x;
+            outY = column.y;
+            outZ = column.z;
+            return true;
+        }
+        return false;
+    }
 
     // Walk the leader's same-map group into kernel rows and report whether the
     // party is FIGHTING. Recover re-walks the live group itself, so a plain value
@@ -214,16 +268,19 @@ namespace DcStrandedRecovery
         {
             NavmeshSnap::Result const column =
                 NavmeshSnap::SnapColumn(leader->GetMap(), lx, ly, lz);
-            if (column.ok && std::fabs(column.z - lz) > 25.0f)
+            float rx = 0.0f, ry = 0.0f, rz = 0.0f;
+            if (column.ok && std::fabs(column.z - lz) > 25.0f &&
+                PickRescueLanding(leader, column, rx, ry, rz))
             {
                 leader->GetMotionMaster()->Clear();
-                leader->NearTeleportTo(column.x, column.y, column.z,
-                                       leader->GetOrientation(),
+                leader->SetFallInformation(0, 0.0f);
+                leader->NearTeleportTo(rx, ry, rz, leader->GetOrientation(),
                                        /*casting*/ false, /*vehicle*/ false,
                                        /*withPet*/ true);
                 LOG_INFO("playerbots.dungeonclear",
-                         "[DC:{}] altitude sanity: column-snapped {:.0f}y back onto the mesh",
-                         leader->GetName(), std::fabs(column.z - lz));
+                         "[DC:{}] altitude sanity: {:.0f}y off the mesh -> back onto grounded "
+                         "({:.1f},{:.1f},{:.1f})",
+                         leader->GetName(), std::fabs(column.z - lz), rx, ry, rz);
                 return;
             }
         }
@@ -246,16 +303,20 @@ namespace DcStrandedRecovery
                 float const mz = member->GetPositionZ();
                 NavmeshSnap::Result const column = NavmeshSnap::SnapColumn(
                     member->GetMap(), member->GetPositionX(), member->GetPositionY(), mz);
-                if (column.ok && std::fabs(column.z - mz) > 25.0f)
+                float rx = 0.0f, ry = 0.0f, rz = 0.0f;
+                if (column.ok && std::fabs(column.z - mz) > 25.0f &&
+                    PickRescueLanding(member, column, rx, ry, rz))
                 {
                     member->GetMotionMaster()->Clear();
-                    member->NearTeleportTo(column.x, column.y, column.z,
-                                           member->GetOrientation(),
+                    member->SetFallInformation(0, 0.0f);
+                    member->NearTeleportTo(rx, ry, rz, member->GetOrientation(),
                                            /*casting*/ false, /*vehicle*/ false,
                                            /*withPet*/ true);
                     LOG_INFO("playerbots.dungeonclear",
-                             "[DC:{}] altitude sanity: column-snapped {} {:.0f}y onto the mesh",
-                             leader->GetName(), member->GetName(), std::fabs(column.z - mz));
+                             "[DC:{}] altitude sanity: {} {:.0f}y off the mesh -> back onto "
+                             "grounded ({:.1f},{:.1f},{:.1f})",
+                             leader->GetName(), member->GetName(), std::fabs(column.z - mz),
+                             rx, ry, rz);
                     continue;
                 }
             }
@@ -269,16 +330,36 @@ namespace DcStrandedRecovery
             // them straight back toward wherever they were stuck.
             float const angle = leader->GetOrientation() + static_cast<float>(moved) * 0.7f;
             float const off = 1.5f + 0.5f * static_cast<float>(moved);
-            float const tx = lx + std::cos(angle) * off;
-            float const ty = ly + std::sin(angle) * off;
+            float tx = lx + std::cos(angle) * off;
+            float ty = ly + std::sin(angle) * off;
+            float tz = lz;
+
+            // The fanned spot carries the leader's Z only on flat ground: next
+            // to a ledge or a stair it is air (or another floor). Put it on the
+            // mesh with real ground under it, else just aim at the leader.
+            {
+                NavmeshSnap::Result const spot =
+                    NavmeshSnap::SnapGrounded(leader->GetMap(), tx, ty, lz, 3.0f);
+                if (spot.ok && std::fabs(spot.z - lz) < 3.0f)
+                {
+                    tx = spot.x;
+                    ty = spot.y;
+                    tz = spot.z;
+                }
+                else
+                {
+                    tx = lx;
+                    ty = ly;
+                }
+            }
 
             // Run there, never teleport (see DcRouteRecorder's teleport
             // filter and the no-shortcuts rule): a rescue that moves a bot
             // through walls both skips content and poisons every route the
             // recorder captures on that leg.
             member->GetMotionMaster()->Clear();
-            member->GetMotionMaster()->MovePoint(0, tx, ty, lz, FORCED_MOVEMENT_NONE,
-                                                 0.0f, 0.0f, /*generatePath*/ true, false);
+            member->GetMotionMaster()->MovePoint(0, tx, ty, tz, MOVE_PATHFINDING | MOVE_RUN_MODE,
+                                                 0.0f, -10.0f, /*generatePath*/ true, false);
             ++moved;
 
             LOG_INFO("playerbots.dungeonclear",
@@ -339,5 +420,161 @@ namespace DcStrandedRecovery
             leaderAI,
             "CHAT\tRescued " + std::to_string(moved) +
                 (moved == 1 ? " stuck party member." : " stuck party members."));
+    }
+
+    void FallGuard(Player* bot)
+    {
+        if (!bot || !bot->IsInWorld())
+            return;
+        PlayerbotAI* ai = GET_PLAYERBOT_AI(bot);
+        if (!ai)
+            return;
+        Map* map = bot->GetMap();
+        if (!map || !map->IsDungeon())
+            return;
+
+        DcRunState& self = DcRun::Of(ai);
+        uint32 const now = getMSTime();
+        if (self.fallGuardCheckMs && getMSTimeDiff(self.fallGuardCheckMs, now) < DC_FALL_GUARD_CHECK_MS)
+            return;
+        self.fallGuardCheckMs = now ? now : 1;
+
+        // Only bots in a live run: the guard teleports, and outside a clear the
+        // bot's movement is someone else's business.
+        if (!DcLeaderSignal::FindRunOwner(bot))
+            return;
+
+        if (!bot->IsAlive() || bot->IsTaxiFlying() || bot->GetTransport() || bot->IsBeingTeleported())
+        {
+            self.fallGuardSunkSince = 0;
+            return;
+        }
+
+        float const x = bot->GetPositionX();
+        float const y = bot->GetPositionY();
+        float const z = bot->GetPositionZ();
+
+        // 1. Standing on real ground: this is the new safe spot.
+        if (NavmeshSnap::HasGround(map, x, y, z, DC_FALL_GUARD_SAFE_TOL_YD))
+        {
+            self.safeValid      = true;
+            self.safeMapId      = bot->GetMapId();
+            self.safeInstanceId = bot->GetInstanceId();
+            self.safeX = x;
+            self.safeY = y;
+            self.safeZ = z;
+            self.fallGuardSunkSince = 0;
+            return;
+        }
+
+        // Swimming bots have no floor at their feet by design, and a planned
+        // drop / knockback is airborne on purpose - neither is judged.
+        if (bot->IsInWater() || map->IsInWater(x, y, z))
+        {
+            self.fallGuardSunkSince = 0;
+            return;
+        }
+        if (ai->IsJumping() || DcLeaderSignal::IsScriptedDropActive(bot))
+            return;
+        MovementGeneratorType const mt = bot->GetMotionMaster()->GetCurrentMovementGeneratorType();
+        if (mt == EFFECT_MOTION_TYPE || mt == CHARGE_MOTION_TYPE)
+            return;
+
+        // 2. Classify. Void: no surface anywhere below (fell out of the world).
+        //    Sunk: a floor a few yards ABOVE and nothing at the feet (clipped
+        //    through it). Dropped: airborne well under the last safe spot.
+        float const below = map->GetHeight(x, y, z + 0.5f);
+        float const above = map->GetHeight(x, y, z + 8.0f, true, 8.0f);
+        bool const inVoid = below <= INVALID_HEIGHT;
+        bool const sunk = above > INVALID_HEIGHT && above > z + DC_FALL_GUARD_SUNK_YD;
+        bool const sameInstance = self.safeValid && self.safeMapId == bot->GetMapId() &&
+                                  self.safeInstanceId == bot->GetInstanceId();
+        bool const dropped = sameInstance && z < self.safeZ - DC_FALL_GUARD_DROP_YD;
+
+        if (sunk && !inVoid && !dropped)
+        {
+            // A floor overhead with nothing at the feet is also a bot passing
+            // under a low ledge mid-fall; only act once it persists.
+            if (!self.fallGuardSunkSince)
+            {
+                self.fallGuardSunkSince = now ? now : 1;
+                return;
+            }
+            if (getMSTimeDiff(self.fallGuardSunkSince, now) < DC_FALL_GUARD_SUNK_MS)
+                return;
+        }
+        else if (!inVoid && !dropped)
+        {
+            self.fallGuardSunkSince = 0;
+            return;   // airborne but nothing alarming (a short hop, a step off a crate)
+        }
+
+        // 3. Rate limit: one snap-back per cooldown, and a capped burst so a
+        //    spot that keeps swallowing the bot cannot become a teleport loop.
+        if (self.fallGuardRescueMs && getMSTimeDiff(self.fallGuardRescueMs, now) < DC_FALL_GUARD_COOLDOWN_MS)
+            return;
+        if (self.fallGuardRescueMs && getMSTimeDiff(self.fallGuardRescueMs, now) > DC_FALL_GUARD_BURST_MS)
+            self.fallGuardRescues = 0;
+        if (self.fallGuardRescues >= DC_FALL_GUARD_BURST_MAX)
+            return;
+
+        // 4. Landing: the recorded safe spot, re-checked against the world.
+        //    Without one (first seconds of a run), the run owner's feet if he
+        //    is standing on ground on this instance.
+        float lx = 0.0f, ly = 0.0f, lz = 0.0f;
+        bool landing = false;
+        if (sameInstance && LandingIsGrounded(map, self.safeX, self.safeY, self.safeZ))
+        {
+            lx = self.safeX;
+            ly = self.safeY;
+            lz = self.safeZ;
+            landing = true;
+        }
+        else if (Player* owner = DcLeaderSignal::FindRunOwner(bot))
+        {
+            if (owner != bot && owner->IsAlive() && owner->GetMap() == map &&
+                LandingIsGrounded(map, owner->GetPositionX(), owner->GetPositionY(),
+                                  owner->GetPositionZ()))
+            {
+                lx = owner->GetPositionX();
+                ly = owner->GetPositionY();
+                lz = owner->GetPositionZ();
+                landing = true;
+            }
+        }
+        if (!landing)
+        {
+            LOG_DEBUG("playerbots.dungeonclear",
+                      "[DC:{}] fall guard: {} at ({:.1f},{:.1f},{:.1f}) but no grounded landing to "
+                      "return to", bot->GetName(),
+                      inVoid ? "in the void" : (dropped ? "dropped" : "under the floor"), x, y, z);
+            return;
+        }
+
+        // 5. Snap back: stop everything, clear the fall (stock and bot-side
+        //    sim both), teleport, and drop the DC follower state so the next
+        //    tick re-snaps onto the route from the safe spot.
+        bot->GetMotionMaster()->Clear();
+        bot->StopMoving();
+        ai->SetJumpTime(0);
+        ai->ResetJumpDestination();
+        bot->m_movementInfo.RemoveMovementFlag(MOVEFLAG_JUMPING | MOVEFLAG_FALLINGFAR);
+        bot->SetFallInformation(0, 0.0f);
+        bot->NearTeleportTo(lx, ly, lz + 0.5f, bot->GetOrientation(),
+                            /*casting*/ false, /*vehicle*/ false, /*withPet*/ true);
+        ai->GetAiObjectContext()->GetValue<DungeonFollowerState&>(DcKey::FollowerState)->Get() =
+            DungeonFollowerState{};
+
+        self.fallGuardRescueMs = now ? now : 1;
+        ++self.fallGuardRescues;
+        self.fallGuardSunkSince = 0;
+
+        LOG_INFO("playerbots.dungeonclear",
+                 "[DC:{}] fall guard: {} at ({:.1f},{:.1f},{:.1f}), {:.1f}y under the last safe "
+                 "spot -> snapped back to ({:.1f},{:.1f},{:.1f}) [#{} this burst]",
+                 bot->GetName(),
+                 inVoid ? "in the void" : (dropped ? "dropped" : "under the floor"),
+                 x, y, z, sameInstance ? self.safeZ - z : 0.0f, lx, ly, lz,
+                 self.fallGuardRescues);
     }
 }

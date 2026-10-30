@@ -14,6 +14,8 @@ public:
         looseScore = -1;
         looseThreat = 0;
         loose = nullptr;
+        currentIsCandidate = false;
+        currentTarget = ai->GetAiObjectContext()->GetValue<Unit*>("current target")->Get();
     }
 
 public:
@@ -30,6 +32,9 @@ public:
             if (std::find(attackers.begin(), attackers.end(), creature->GetObjectGuid()) == attackers.end())
                 return;
         }
+
+        if (creature == currentTarget)
+            currentIsCandidate = true;
 
         float threat = threatManager->getThreat(bot);
         if (!result || (minThreat - threat) > 0.1f)
@@ -61,14 +66,42 @@ public:
     }
 
     Unit* GetLooseTarget() const { return loose; }
+    Unit* GetCurrentCandidate() const { return currentIsCandidate ? currentTarget : nullptr; }
 
 protected:
     float minThreat;
+    bool currentIsCandidate;
+    Unit* currentTarget;
     int looseScore;
     float looseThreat;
     Unit* loose;
 };
 
+
+namespace
+{
+    // Tank "owns" a mob once it is the mob's victim and leads every other
+    // player on its threat list by a clear margin, so a swap will not lose it.
+    bool HasSecureThreat(Player* bot, Unit* creature)
+    {
+        if (creature->GetVictim() != bot)
+            return false;
+
+        ThreatManager& threatManager = creature->getThreatManager();
+        const float own = threatManager.getThreat(bot);
+        if (own <= 0.0f)
+            return false;
+
+        float other = 0.0f;
+        for (HostileReference* ref : threatManager.getThreatList())
+        {
+            Unit* unit = ref ? ref->GetVictim() : nullptr;
+            if (unit && unit != bot)
+                other = std::max(other, ref->getThreat());
+        }
+        return own >= other * 1.3f + 100.0f;
+    }
+}
 
 Unit* TankTargetValue::Calculate()
 {
@@ -92,6 +125,12 @@ Unit* TankTargetValue::Calculate()
             return rti;
     }
 
-    // 3. Otherwise build threat where it is lowest.
+    // 3. Otherwise build threat where it is lowest, but finish securing the
+    //    current mob first: re-picking the lowest-threat mob every tick made
+    //    the tank ping-pong between adds without holding any of them.
+    Unit* current = strategy.GetCurrentCandidate();
+    if (current && current != lowestThreat && !HasSecureThreat(bot, current))
+        return current;
+
     return lowestThreat;
 }

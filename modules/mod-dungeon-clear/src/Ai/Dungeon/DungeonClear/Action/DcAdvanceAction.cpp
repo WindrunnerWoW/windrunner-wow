@@ -263,7 +263,10 @@ namespace
             {
                 NavmeshSnap::Result const floorHit = NavmeshSnap::SnapColumn(
                     bot->GetMap(), x, y, nb->z, /*halfHeight*/ 40.0f, /*radius*/ 8.0f);
-                if (floorHit.ok && z - floorHit.z > 25.0f)
+                // ...and only onto a floor the collision world agrees exists: a
+                // mesh poly with no ground under it is the next fall.
+                if (floorHit.ok && z - floorHit.z > 25.0f &&
+                    NavmeshSnap::HasGround(bot->GetMap(), floorHit.x, floorHit.y, floorHit.z, 2.0f))
                 {
                     bot->GetMotionMaster()->Clear();
                     bot->NearTeleportTo(floorHit.x, floorHit.y, floorHit.z,
@@ -284,11 +287,41 @@ namespace
         // the real floor, and 5yd cardinal hops can never reach that. Ask
         // the mesh for the nearest poly in a tall column under our XY and
         // near-teleport onto it.
+        //
+        // The ±250y column answers with whatever poly is NEAREST in Z, which
+        // can be a sealed shaft floor or a phantom deck. So: prefer the bot's
+        // own last safe spot (the fall guard's record - real ground it stood
+        // on moments ago), and accept the column only when real ground is
+        // under it.
         {
-            NavmeshSnap::Result const column = NavmeshSnap::SnapColumn(bot->GetMap(), x, y, z);
-            if (column.ok && std::fabs(column.z - z) > 8.0f)
+            Map* const map = bot->GetMap();
+            PlayerbotAI* const recAI = GET_PLAYERBOT_AI(bot);
+            if (recAI)
+            {
+                DcRunState const& s = DcRun::Of(recAI);
+                if (s.safeValid && s.safeMapId == bot->GetMapId() &&
+                    s.safeInstanceId == bot->GetInstanceId() &&
+                    std::fabs(s.safeZ - z) > 8.0f &&
+                    std::hypot(s.safeX - x, s.safeY - y) < 60.0f &&
+                    NavmeshSnap::HasGround(map, s.safeX, s.safeY, s.safeZ, 2.0f))
+                {
+                    bot->GetMotionMaster()->Clear();
+                    bot->SetFallInformation(0, 0.0f);
+                    bot->NearTeleportTo(s.safeX, s.safeY, s.safeZ + 0.5f, bot->GetOrientation(),
+                                        /*casting*/ false, /*vehicle*/ false, /*withPet*/ true);
+                    LOG_INFO("playerbots.dungeonclear",
+                             "[DC:{}] far-from-poly recovery: {:.0f}y off -> back to the last safe spot",
+                             bot->GetName(), std::fabs(s.safeZ - z));
+                    return true;
+                }
+            }
+
+            NavmeshSnap::Result const column = NavmeshSnap::SnapColumn(map, x, y, z);
+            if (column.ok && std::fabs(column.z - z) > 8.0f &&
+                NavmeshSnap::HasGround(map, column.x, column.y, column.z, 2.0f))
             {
                 bot->GetMotionMaster()->Clear();
+                bot->SetFallInformation(0, 0.0f);
                 bot->NearTeleportTo(column.x, column.y, column.z, bot->GetOrientation(),
                                     /*casting*/ false, /*vehicle*/ false, /*withPet*/ true);
                 LOG_INFO("playerbots.dungeonclear",
@@ -296,6 +329,18 @@ namespace
                          bot->GetName(), std::fabs(column.z - z));
                 return true;
             }
+        }
+
+        // PATHFIND_FARFROMPOLY_* are 0 in this core, so the old `t & FARFROMPOLY`
+        // tests below never fired. Measure it directly instead: how far the bot
+        // itself is from the nearest walkable poly. A sidestep cannot help a bot
+        // that far off the mesh - it would be a straight leg through whatever
+        // is between it and the mesh.
+        constexpr float DC_NUDGE_FAR_FROM_POLY_YD = 7.0f;
+        {
+            NavmeshSnap::Result const here = NavmeshSnap::Snap(bot->GetMap(), x, y, z, 3.0f);
+            if (!here.ok || here.distance > DC_NUDGE_FAR_FROM_POLY_YD)
+                return false;
         }
 
         struct Offset { float dx, dy; };
@@ -317,10 +362,17 @@ namespace
             // Accept anything that produced a real point path — we just
             // need to budge onto a polygon. The chunked rebuild on the
             // next tick handles the actual route from the new position.
-            if (t & PATHFIND_NOPATH)
-                continue;
-            if (t & PATHFIND_FARFROMPOLY_START)
-                continue;  // didn't actually help — still off the mesh
+            if (t & (PATHFIND_NOPATH | PATHFIND_SHORTCUT))
+                continue;  // a shortcut is a straight line, not a path
+            // The FARFROMPOLY_END analog: the nudge spot must be on the mesh
+            // and on real ground, or the sidestep walks off a ledge.
+            {
+                NavmeshSnap::Result const dest = NavmeshSnap::Snap(bot->GetMap(), nx, ny, nz, 2.0f);
+                if (!dest.ok || dest.distance > 2.0f)
+                    continue;
+                if (!NavmeshSnap::HasGround(bot->GetMap(), nx, ny, nz, 2.0f))
+                    continue;
+            }
 
             // A nudge is a SIDESTEP. Reject a probe whose generated path is far
             // longer than the offset itself: on a ramp the blind axis probes
@@ -867,7 +919,26 @@ DungeonClearAdvanceAction::Step DungeonClearAdvanceAction::TryBetweenPullsRest(A
     //    clock restarts, so a party that stays unready pays the full budget
     //    again before the next release - this reopens the travel window the
     //    ratchet above closes, and once a minute is the price for not deadlocking.
-    if (heldMs >= DC_PARTY_YIELD_MAX_MS)
+    //    Not through a hold the party is visibly working through, though: a
+    //    corpse on the map or a healer still drinking under the mana floor. Those
+    //    get the much longer hard cap - releasing early there is the wipe.
+    bool workingThrough = false;
+    if (heldMs >= DC_PARTY_YIELD_MAX_MS && heldMs < DC_PARTY_YIELD_HARD_MAX_MS)
+    {
+        DcPartyState::RestGate const rest = DcPartyState::GetRestGate(bot, context);
+        std::string who;
+        if (DcPartyState::HasDeadSameMapMember(bot))
+            workingThrough = true;
+        else if (DcPartyState::IsHealerBelowManaFloor(bot, rest.minMp, &who))
+            workingThrough = true;
+        if (workingThrough && appr.partyNotReadyTicks % 20 == 0)
+            LOG_INFO("playerbots.dungeonclear",
+                     "[DC:{}] yield budget spent after {}ms but {} -> holding (cap {}ms)",
+                     bot->GetName(), heldMs,
+                     who.empty() ? std::string("a member is dead") : (who + " is drinking"),
+                     DC_PARTY_YIELD_HARD_MAX_MS);
+    }
+    if (heldMs >= DC_PARTY_YIELD_MAX_MS && !workingThrough)
     {
         DcPartyState::SpreadGate const gate = DcPartyState::GetSpreadGate(bot, context);
         DcPartyState::RestGate const rest = DcPartyState::GetRestGate(bot, context);
