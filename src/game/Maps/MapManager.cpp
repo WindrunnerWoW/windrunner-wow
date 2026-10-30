@@ -1182,7 +1182,6 @@ bool MapManager::waitContinentUpdateFinishedUntil(std::chrono::high_resolution_c
     std::unique_lock<std::mutex> lock(m_continentMutex);
     return m_continentCV.wait_until(lock,time,std::bind(&MapManager::IsContinentUpdateFinished,this));
 }
-#ifdef ENABLE_ELUNA
 void MapManager::DoForAllMaps(std::function<void(Map*)> const& worker)
 {
     // The lock CreateMap takes when it adds a map.
@@ -1196,4 +1195,3 @@ void MapManager::DoWithMapsLocked(std::function<void()> const& worker)
     Guard guard(*this);
     worker();
 }
-#endif

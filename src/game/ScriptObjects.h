@@ -585,6 +585,7 @@ class AllGameObjectScript : public ScriptObject
         virtual void OnGameObjectRemoveWorld(GameObject* /*go*/) {}
         virtual void OnGameObjectUpdate(GameObject* /*go*/, uint32 /*diff*/) {}
         virtual bool CanGameObjectGossipHello(Player* /*player*/, GameObject* /*go*/) { return false; }
+        virtual bool CanGameObjectGossipSelect(Player* /*player*/, GameObject* /*go*/, uint32 /*sender*/, uint32 /*action*/, char const* /*code*/) { return false; }
         virtual GameObjectAI* GetGameObjectAI(GameObject* /*go*/) const { return nullptr; }
 };
 
@@ -759,11 +760,9 @@ class GroupScript : public ScriptObject
     protected:
         explicit GroupScript(char const* name) : ScriptObject(name) { ScriptRegistry<GroupScript>::AddScript(this); }
     public:
-#ifdef ENABLE_ELUNA
         virtual void OnCreate(Group* /*group*/, ObjectGuid /*leaderGuid*/, uint8 /*groupType*/) {}
         virtual void OnInviteMember(Group* /*group*/, ObjectGuid /*guid*/) {}
         virtual bool CanMemberAccept(Group* /*group*/, Player* /*player*/) { return true; }
-#endif
         virtual void OnAddMember(Group* /*group*/, ObjectGuid /*guid*/) {}
         virtual void OnRemoveMember(Group* /*group*/, ObjectGuid /*guid*/, uint8 /*method*/) {}
         virtual void OnChangeLeader(Group* /*group*/, ObjectGuid /*newLeaderGuid*/, ObjectGuid /*oldLeaderGuid*/) {}

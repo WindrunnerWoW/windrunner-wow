@@ -218,11 +218,8 @@ struct CreatureInfo
     union { uint32  unit_class = 0; uint32 UnitClass; };
     uint32  unit_flags = 0;                                 // enum UnitFlags mask values
     union { uint32  dynamic_flags = 0; uint32 DynamicFlags; };
-#ifdef ENABLE_ELUNA
-    union { uint32  beast_family = 0; uint32 pet_family; uint32 Family; }; // enum CreatureFamily values (optional); pet_family/Family are the Eluna names
-#else
-    uint32  beast_family = 0;                               // enum CreatureFamily values (optional)
-#endif
+    // Anonymous union shares storage with the Eluna/cmangos names for this field.
+    union { uint32  beast_family = 0; uint32 pet_family; uint32 Family; }; // enum CreatureFamily values (optional)
     union { uint32  trainer_type = 0; uint32 TrainerType; };
     union { uint32  trainer_spell = 0; uint32 TrainerSpell; };
     union { uint32  trainer_class = 0; uint32 TrainerClass; };
