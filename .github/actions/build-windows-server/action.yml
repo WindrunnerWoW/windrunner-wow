@@ -39,6 +39,21 @@ runs:
         # gitlink so each build and release picks up upstream changes.
         git submodule update --init --remote --recursive modules/mod-20playerraids
 
+    # mod-hearthstone's card data (src/HsDataset.h, the Battlegrounds .inc, the world SQL template)
+    # is generated and gitignored, so a fresh checkout cannot compile without this.
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Generate mod-hearthstone card data
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [ -f modules/mod-hearthstone/tools/setup_all.py ]; then
+          python modules/mod-hearthstone/tools/setup_all.py --cards-only
+        fi
+
     - name: Archive names and BUILD_INFO
       shell: bash
       env:
