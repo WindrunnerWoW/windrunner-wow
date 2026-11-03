@@ -186,7 +186,8 @@ inline void AddDarkmoonRows(std::vector<CalendarRow>& rows,
 {
     // The Darkmoon script only runs while event 4 is enabled. It chooses one
     // of events 4, 5, 23, and 24 for each server-local date. Event validity is
-    // the same gate used by DarkmoonFaire::Update().
+    // the same gate used by DarkmoonFaire::Update(). Only 4 and 5 mean the faire
+    // is open; 23 and 24 are the Wednesday build-up, which is not an event.
     if (events.size() <= 4 || !DarkmoonControllerEnabled(events[4].disabled))
         return;
 
@@ -217,13 +218,11 @@ inline void AddDarkmoonRows(std::vector<CalendarRow>& rows,
 
         const std::tm weekday = LocalTm(dayStart + 12 * 60 * 60);
         const uint32_t selectedId = DarkmoonEventForDate(weekday);
-        const bool isHordeWeek = selectedId == 5 || selectedId == 24;
+        const bool isHordeWeek = selectedId == 5;
 
-        if (HasValidEvent(events, selectedId))
+        if ((selectedId == 4 || selectedId == 5) && HasValidEvent(events, selectedId))
         {
-            std::string title = isHordeWeek ? "Darkmoon Faire (Mulgore)" : "Darkmoon Faire (Elwynn)";
-            if (selectedId == 23 || selectedId == 24)
-                title = isHordeWeek ? "Darkmoon Faire setup (Mulgore)" : "Darkmoon Faire setup (Elwynn)";
+            const std::string title = isHordeWeek ? "Darkmoon Faire (Mulgore)" : "Darkmoon Faire (Elwynn)";
             if (!spans.empty() && spans.back().id == selectedId && spans.back().end == dayStart)
                 spans.back().end = dayEnd;
             else
@@ -384,8 +383,8 @@ inline bool HandleWindrunnerCalendarAddonMessage(WorldSession* session, Player* 
     WindrunnerCalendar::AddScheduledRows(rows, events, rangeStart, rangeEnd);
     // Darkmoon Faire stays installed all week on this realm: DarkmoonFaire::Update
     // keeps one of events 4, 5, 23 and 24 for every date and only swaps Elwynn and
-    // Mulgore weekly (Wednesday is the setup day). The rows are per day, so the
-    // faire shows up exactly once on each day of the month.
+    // Mulgore weekly. The rows are per day, so the faire shows up once on each day
+    // it is open; the Wednesday build-up day has no entry.
     WindrunnerCalendar::AddDarkmoonRows(rows, events, rangeStart, rangeEnd);
     std::sort(rows.begin(), rows.end(), [](const WindrunnerCalendar::CalendarRow& left, const WindrunnerCalendar::CalendarRow& right)
     {
