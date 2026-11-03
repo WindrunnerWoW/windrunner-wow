@@ -83,6 +83,18 @@ inline int64_t LocalMidnight(std::tm civil)
     return static_cast<int64_t>(std::mktime(&civil));
 }
 
+static const int64_t DaySeconds = 86400;
+static const uint32_t DayMinutes = 1440;
+
+// Reading the day at noon keeps the arithmetic on the intended date when the
+// server timezone switches to or from daylight saving time.
+inline int64_t NextLocalMidnight(int64_t dayStart)
+{
+    std::tm civil = LocalTm(dayStart + DaySeconds / 2);
+    civil.tm_mday += 1;
+    return LocalMidnight(civil);
+}
+
 inline std::string FormatCivil(int64_t epoch)
 {
     const std::tm civil = LocalTm(epoch);
@@ -116,6 +128,9 @@ inline void AddScheduledRows(std::vector<CalendarRow>& rows,
                              GameEventMgr::GameEventDataMap const& events,
                              int64_t rangeStart, int64_t rangeEnd)
 {
+    // Two days of lead-in so a window that started before the grid keeps its real
+    // start instead of being clipped to the first cell of the month.
+    const int64_t queryStart = rangeStart - 2 * DaySeconds;
     for (uint32_t id = 1; id < events.size(); ++id)
     {
         const GameEventData& event = events[id];
@@ -124,18 +139,36 @@ inline void AddScheduledRows(std::vector<CalendarRow>& rows,
             continue;
         if (id == 4 || id == 5 || id == 23 || id == 24)
             continue; // Darkmoon is expanded by its hardcoded controller below.
+        // The calendar has one row per day and event. An event that fires several
+        // times per day (Gurubashi Arena every three hours) has no such row and
+        // would only repeat the previous one across the whole month.
+        if (event.occurence < DayMinutes && event.length < event.occurence)
+            continue;
 
         const std::vector<Span> spans = ScheduledSpans(
             static_cast<int64_t>(event.start), static_cast<int64_t>(event.end),
-            event.occurence, event.length, event.leapDays, rangeStart, rangeEnd);
+            event.occurence, event.length, event.leapDays, queryStart, rangeEnd);
         for (std::vector<Span>::const_iterator span = spans.begin(); span != spans.end(); ++span)
         {
+            // A window of up to one day belongs to the day it starts. Otherwise a
+            // daily rotation (Call to Arms switching at 07:00) leaves a tail in the
+            // next day and every day lists two battlegrounds.
+            int64_t spanEnd = span->end;
+            if (event.length <= DayMinutes)
+            {
+                const int64_t dayEnd = NextLocalMidnight(LocalMidnight(LocalTm(span->start)));
+                if (spanEnd > dayEnd)
+                    spanEnd = dayEnd;
+            }
+            if (spanEnd <= span->start || !Overlaps(span->start, spanEnd, rangeStart, rangeEnd))
+                continue;
+
             CalendarRow row;
             row.id = id;
             row.holidayId = static_cast<uint32_t>(event.holiday_id);
             row.category = category;
             row.start = span->start;
-            row.end = span->end;
+            row.end = spanEnd;
             row.title = event.description;
             rows.push_back(row);
         }
@@ -349,6 +382,10 @@ inline bool HandleWindrunnerCalendarAddonMessage(WorldSession* session, Player* 
     const GameEventMgr::GameEventDataMap& events = sGameEventMgr.GetEventMap();
     std::vector<WindrunnerCalendar::CalendarRow> rows;
     WindrunnerCalendar::AddScheduledRows(rows, events, rangeStart, rangeEnd);
+    // Darkmoon Faire stays installed all week on this realm: DarkmoonFaire::Update
+    // keeps one of events 4, 5, 23 and 24 for every date and only swaps Elwynn and
+    // Mulgore weekly (Wednesday is the setup day). The rows are per day, so the
+    // faire shows up exactly once on each day of the month.
     WindrunnerCalendar::AddDarkmoonRows(rows, events, rangeStart, rangeEnd);
     std::sort(rows.begin(), rows.end(), [](const WindrunnerCalendar::CalendarRow& left, const WindrunnerCalendar::CalendarRow& right)
     {
