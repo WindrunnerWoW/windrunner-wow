@@ -60,7 +60,9 @@ inline char CalendarCategory(uint32_t id, uint32_t holidayId)
         return 'H';
     switch (id)
     {
-        case 16: case 29: case 30: case 31: case 32: case 34:
+        // Edge of Madness (29-32) rotates four Zul'Gurub bosses. It is a spawn
+        // schedule rather than a player event, so it stays off the calendar.
+        case 16: case 34:
             return 'W';
         default:
             return 0;
