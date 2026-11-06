@@ -232,23 +232,6 @@ class Log : public MaNGOS::Singleton<Log, MaNGOS::ClassLevelLockable<Log, std::m
                 fflush(logFiles[type]);
             }
             fflush(stdout);
-#ifdef ENABLE_ELUNA
-        }
-
-        template<typename... Args>
-        void Out(LogFile type, LogLevel level, const char* str, Args... args)
-        {
-            if (level == LOG_LVL_DEBUG)
-                outDebug(str, args...);
-            else if (level == LOG_LVL_DETAIL)
-                outDetail(str, args...);
-            else if (level == LOG_LVL_BASIC)
-                outBasic(str, args...);
-            else
-                outError(str, args...);
-
-            out(type, str, args...);
-#endif
         }
 
         template<typename... Args>
