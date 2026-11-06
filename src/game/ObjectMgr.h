@@ -319,7 +319,7 @@ typedef robin_hood::unordered_map<uint32,PageTextLocale> PageTextLocaleMap;
 typedef robin_hood::unordered_map<int32,MangosStringLocale> MangosStringLocaleMap;
 typedef robin_hood::unordered_map<std::string, MangosStringLocaleMap> ModuleStringLocaleMap;
 typedef robin_hood::unordered_map<uint32,QuestGreetingLocale> QuestGreetingLocaleMap;
-typedef robin_hood::unordered_map<uint32,GossipMenuItemsLocale> GossipMenuItemsLocaleMap;
+typedef robin_hood::unordered_map<uint64,GossipMenuItemsLocale> GossipMenuItemsLocaleMap;
 typedef robin_hood::unordered_map<uint32,PointOfInterestLocale> PointOfInterestLocaleMap;
 typedef robin_hood::unordered_map<uint32,AreaLocale> AreaLocaleMap;
 typedef robin_hood::unordered_map<uint32, TrainerGreetingLocale> TrainerGreetingLocaleMap;
@@ -1210,7 +1210,7 @@ class ObjectMgr
             return &itr->second;
         }
 
-        GossipMenuItemsLocale const* GetGossipMenuItemsLocale(uint32 entry) const
+        GossipMenuItemsLocale const* GetGossipMenuItemsLocale(uint64 entry) const
         {
             auto itr = m_GossipMenuItemsLocaleMap.find(entry);
             if(itr==m_GossipMenuItemsLocaleMap.end()) return nullptr;
