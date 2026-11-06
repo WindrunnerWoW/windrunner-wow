@@ -248,6 +248,26 @@ target_link_libraries(modules
   PUBLIC
     game)
 
+# Static modules on this branch are written against the AC-style script surface:
+# their sources include only ScriptMgr.h, this core declares the script classes
+# (AllCreatureScript, PlayerScript, ServerScript, PLAYERHOOK_*/SERVERHOOK_*) in
+# ScriptObjects.h, SharedDefines.h (Position::NormalizeOrientation) uses M_PI and
+# needs _USE_MATH_DEFINES on the command line for MSVC, and WorldSession.h holds
+# a std::unique_ptr<WorldPacket> while only a forward declaration is visible.
+# Force-include those two core headers and pass the two macros for every module
+# translation unit, so module sources stay free of build-order assumptions.
+# mod-dungeon-clear injects the same /D_USE_MATH_DEFINES= define itself, and the
+# legacy PlayerBots tree defines SEC_GAMEMASTER in cmangos-compat-shim.h
+# (SEC_ADMINISTRATOR); repeating both here is harmless and keeps the remaining
+# modules self-sufficient.
+if (MSVC)
+    target_compile_options(modules PRIVATE /D_USE_MATH_DEFINES=)
+    target_compile_options(modules PRIVATE
+        "/FI${CMAKE_SOURCE_DIR}/src/game/ScriptObjects.h"
+        "/FI${CMAKE_SOURCE_DIR}/src/shared/WorldPacket.h")
+    target_compile_options(modules PRIVATE "/DSEC_GAMEMASTER=SEC_ADMINISTRATOR")
+endif()
+
 set_target_properties(modules PROPERTIES FOLDER "modules")
 
 ProcessModuleConfigCopies(modules)
