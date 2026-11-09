@@ -254,7 +254,7 @@ if(BUILD_ELUNA)
   file(READ ${CMAKE_CURRENT_SOURCE_DIR}/eluna.conf.dist ELUNA_CONF_DIST)
   file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/mangosd.conf.dist "${MANGOSD_CONF_DIST}${ELUNA_CONF_DIST}")
 endif()
-install(FILES ${CMAKE_CURRENT_BINARY_DIR}/mangosd.conf.dist DESTINATION ${CONF_DIR})
+InstallServerConf(${CMAKE_CURRENT_BINARY_DIR}/mangosd.conf.dist ${CONF_DIR})
 InstallServerConf(${CMAKE_CURRENT_SOURCE_DIR}/mods.conf.dist.in ${CONF_DIR})
 InstallServerConf(${CMAKE_CURRENT_SOURCE_DIR}/rate.conf.dist.in ${CONF_DIR})
 

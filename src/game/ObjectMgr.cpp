@@ -1000,7 +1000,7 @@ void ObjectMgr::LoadGossipMenuItemsLocales()
     {
         Field *fields = result->Fetch();
 
-        uint16 menuId   = fields[0].GetUInt16();
+        uint32 menuId   = fields[0].GetUInt32();
         uint16 id       = fields[1].GetUInt16();
 
         GossipMenuItemsMapBounds bounds = GetGossipMenuItemsMapBounds(menuId);
@@ -1024,7 +1024,7 @@ void ObjectMgr::LoadGossipMenuItemsLocales()
             continue;
         }
 
-        GossipMenuItemsLocale& data = m_GossipMenuItemsLocaleMap[MAKE_PAIR32(menuId, id)];
+        GossipMenuItemsLocale& data = m_GossipMenuItemsLocaleMap[MAKE_PAIR64(menuId, id)];
 
         for (int i = 1; i < MAX_LOCALE; ++i)
         {
