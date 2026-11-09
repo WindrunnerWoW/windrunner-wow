@@ -831,8 +831,6 @@ class GameObject : public WorldObject
         Loot* const m_loot = &loot;
         // GetLinkedTrap: cmangos accesses linked-trap GO. Stub returns nullptr.
         GameObject* GetLinkedTrap() { return nullptr; }
-        Player* GetLootRecipient() const;
-        Group* GetGroupLootRecipient() const;
 
 #ifdef ENABLE_ELUNA
         Player* GetLootRecipient() const;

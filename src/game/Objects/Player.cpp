@@ -14243,7 +14243,7 @@ void Player::PrepareGossipMenu(WorldObject *pSource, uint32 menuId)
 
             if (loc_idx >= 0)
             {
-                uint32 idxEntry = MAKE_PAIR32(menuId, itr->second.id);
+                uint64 idxEntry = MAKE_PAIR64(menuId, itr->second.id);
 
                 if (!itr->second.option_broadcast_text)
                     if (GossipMenuItemsLocale const *no = sObjectMgr.GetGossipMenuItemsLocale(idxEntry))

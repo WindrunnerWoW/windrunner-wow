@@ -2,12 +2,21 @@
 -- FILE: duke_dreadmoore.sql
 -- GENERATED: 20261102022741
 -- ==============================================
+-- Menu ids above 65535 (80320 below) need the wider column, widening is a no-op
+-- once applied. Every INSERT is a REPLACE so the migration can run again after a
+-- partial apply (MyISAM keeps the statements before a failure).
+ALTER TABLE `gossip_menu` MODIFY `entry` mediumint(8) unsigned NOT NULL DEFAULT 0;
+ALTER TABLE `gossip_menu_option` MODIFY `menu_id` mediumint(8) unsigned NOT NULL DEFAULT 0;
+ALTER TABLE `locales_gossip_menu_option` MODIFY `menu_id` mediumint(8) unsigned NOT NULL DEFAULT 0;
+-- A non-strict server clamped 80320 to 65535 on the first run.
+DELETE FROM `gossip_menu` WHERE `entry` = 65535 AND `text_id` = 8032001;
+
 UPDATE `broadcast_text`
 SET `emote_id1` = 0
 WHERE `entry` = 92031
 AND `emote_id1` = 55;
 
-INSERT INTO `sound_entries`
+REPLACE INTO `sound_entries`
 (
     `id`,
     `name`
@@ -20,7 +29,7 @@ VALUES
 -- FILE: hyjal_fixes.sql
 -- GENERATED: 20261102022741
 -- ==============================================
-INSERT INTO `broadcast_text`
+REPLACE INTO `broadcast_text`
 (
     `entry`,
     `male_text`,
@@ -42,7 +51,7 @@ UPDATE `gameobject_template`
 SET `size` = 1.2
 WHERE `entry` = 2020315;
 
-INSERT INTO `creature`
+REPLACE INTO `creature`
 (
     `guid`,
     `id`,
@@ -90,7 +99,7 @@ SET `gossip_menu_id` = 0,
     `ranged_dmg_max` = 39.280472
 WHERE `entry` = 80321;
 
-INSERT INTO `gameobject`
+REPLACE INTO `gameobject`
 (
     `guid`,
     `id`,
@@ -118,7 +127,7 @@ VALUES
 (5030503, 2020315, 1, 5454.97998046875, -3433.97998046875, 1563.010009765625, 3.3427999019622803, 0, 0, 0.994943722, -0.100434007, 300, 300, 100, 1, 0, 0),
 (5030504, 2020315, 1, 5363.5498046875, -3493.179931640625, 1568.989990234375, 3.8462400436401367, 0, 0, 0.938573388, -0.345079695, 300, 300, 100, 1, 0, 0);
 
-INSERT INTO `gossip_menu`
+REPLACE INTO `gossip_menu`
 (
     `entry`,
     `text_id`,
@@ -128,7 +137,7 @@ INSERT INTO `gossip_menu`
 VALUES
 (80320, 8032001, 0, 0);
 
-INSERT INTO `npc_text`
+REPLACE INTO `npc_text`
 (
     `ID`,
     `BroadcastTextID0`,
@@ -164,7 +173,7 @@ WHERE `guid` IN (
 -- FILE: missing_gossips_northwind.sql
 -- GENERATED: 20261102022741
 -- ==============================================
-INSERT INTO `broadcast_text`
+REPLACE INTO `broadcast_text`
 (
     `entry`,
     `male_text`,
@@ -191,7 +200,7 @@ UPDATE `creature_template`
 SET `gossip_menu_id` = 62282
 WHERE `entry` = 62282;
 
-INSERT INTO `gossip_menu`
+REPLACE INTO `gossip_menu`
 (
     `entry`,
     `text_id`,
@@ -202,7 +211,7 @@ VALUES
 (62281, 6228101, 0, 0),
 (62282, 6228201, 0, 0);
 
-INSERT INTO `npc_text`
+REPLACE INTO `npc_text`
 (
     `ID`,
     `BroadcastTextID0`,
