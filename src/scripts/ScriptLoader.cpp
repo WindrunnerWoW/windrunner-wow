@@ -385,11 +385,17 @@ void AddSC_warrior_spell_scripts();
 #ifdef ENABLE_ELUNA
 void AddElunaScripts();
 #endif
+// Defined in src/game/WeeklyResetRuntime.cpp.  The reference keeps the core's
+// weekly reset script in the static game library instead of letting the
+// linker drop it.
+void AddWeeklyResetRuntimeScript();
+
 void AddScripts()
 {
 #ifdef ENABLE_ELUNA
     AddElunaScripts();
 #endif
+    AddWeeklyResetRuntimeScript();
     //Nostalrius
     AddSC_generic_spell_ai();
 

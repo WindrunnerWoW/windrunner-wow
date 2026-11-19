@@ -35,6 +35,9 @@ namespace
 
         void OnStartup() override
         {
+            // The core dispatches OnAfterConfigLoad before the script loader
+            // runs, so the startup schedule has to be configured here as well.
+            Configure();
             m_started = true;
             Observe();
             WeeklyQuestRotation::Update();
@@ -98,6 +101,12 @@ namespace
         uint32 m_checkTimer = 0;
         bool m_started = false;
     };
+}
 
-    WeeklyResetRuntimeScript s_weeklyResetRuntimeScript;
+// The game library is linked statically, so a file-scope script instance is
+// dropped by the linker: nothing outside this translation unit references it.
+// The script loader calls this entry point instead, which keeps the object.
+void AddWeeklyResetRuntimeScript()
+{
+    new WeeklyResetRuntimeScript();
 }
