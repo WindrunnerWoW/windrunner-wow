@@ -33,7 +33,7 @@ AutoPDump.DeleteAfterDays = 60
 
 # HardcoreModeLogFile. HardcoreModeLogFile name.
 
-HardcoreModeLogFile = "hardcore.log"
+HardcoreModeLogFile = ""
 
 # Database.Info. Database connection settings for the world server.
 
@@ -492,7 +492,7 @@ LogFileLevel = 1
 
 # HonorLogFile. HonorLogFile name.
 
-HonorLogFile = "honor.log"
+HonorLogFile = ""
 
 # HonorLogTimestamp. HonorLogTimestamp with timestamp of server start in name.
 
@@ -500,7 +500,7 @@ HonorLogTimestamp = 0
 
 # RaidLogFile. RaidLogFile name.
 
-RaidLogFile = "raid.log"
+RaidLogFile = ""
 
 # RaidLogTimestamp. RaidLogTimestamp with timestamp of server start in name.
 
@@ -513,20 +513,20 @@ LogFilter_CreatureMoves = 1
 LogFilter_VisibilityChanges = 1
 LogFilter_DbStrictedCheck = 1
 LogFilter_Honor = 1
-LogFilter_PlayerStats = 0
-LogFilter_SQLText = 0
-LogFilter_PlayerMoves = 0
-LogFilter_PeriodicAffects = 0
-LogFilter_AIAndMovegens = 0
-LogFilter_Damage = 0
-LogFilter_Combat = 0
-LogFilter_SpellCast = 0
-LogFilter_Pathfinding = 0
-LogFilter_Weather = 0
+LogFilter_PlayerStats = 1
+LogFilter_SQLText = 1
+LogFilter_PlayerMoves = 1
+LogFilter_PeriodicAffects = 1
+LogFilter_AIAndMovegens = 1
+LogFilter_Damage = 1
+LogFilter_Combat = 1
+LogFilter_SpellCast = 1
+LogFilter_Pathfinding = 1
+LogFilter_Weather = 1
 
 # AnticheatLogFile. Log file for anticheat check results.
 
-AnticheatLogFile = "anticheat.log"
+AnticheatLogFile = ""
 
 # AnticheatLogTimestamp. Logfile with timestamp of server start in name.
 
@@ -534,7 +534,7 @@ AnticheatLogTimestamp = 0
 
 # WardenLogFile. Log file for warden check results.
 
-WardenLogFile = "warden.log"
+WardenLogFile = ""
 
 # WardenLogTimestamp. Logfile with timestamp of server start in name.
 
@@ -558,7 +558,7 @@ DBErrorFixFile = ""
 
 # CharLogFile. Character operations logfile name.
 
-CharLogFile = "char.log"
+CharLogFile = ""
 
 # CharLogTimestamp. Log file with timestamp of server start in name.
 
@@ -573,11 +573,11 @@ CharLogDump = 0
 
 # ChatLogEnable. Enable or disable logging of player chat.
 
-ChatLogEnable = 1
+ChatLogEnable = 0
 
 # ChatLogFile. Log file for player chat.
 
-ChatLogFile = "chat.log"
+ChatLogFile = ""
 
 # ChatLogTimestamp. Add time stamp to logged chat messages.
 
@@ -585,7 +585,7 @@ ChatLogTimestamp = 0
 
 # BgLogFile. Log file for battlegrounds system.
 
-BgLogFile = "bg.log"
+BgLogFile = ""
 
 # BgLogTimestamp. Add time stamp to battleground logs.
 
@@ -593,7 +593,7 @@ BgLogTimestamp = 0
 
 # GmLogFile. GM Log file of gm commands.
 
-GmLogFile = "gm.log"
+GmLogFile = ""
 
 # GmLogTimestamp. GM Logfile with timestamp of server start in name.
 
@@ -605,11 +605,11 @@ GmLogPerAccount = 0
 
 # Log file for commands marked as critical, when used on own character. (Same IP for example).
 
-CriticalCommandsLogFile = "gm_critical.log"
+CriticalCommandsLogFile = ""
 
 # Log file for spam detected by antispam.
 
-ChatSpamLogFile = "chatspam.log"
+ChatSpamLogFile = ""
 
 # Log file for possible exploits for abuse detection.
 
@@ -617,25 +617,25 @@ ExploitsLogFile = ""
 
 # Log file for client traffic.
 
-ClientIdsLogFile = "client.log"
+ClientIdsLogFile = ""
 
 # Log file for loot.
 
-LootsLogFile = "loot.log"
-RareLootsLogFile = "rareloot.log"
+LootsLogFile = ""
+RareLootsLogFile = ""
 
 # Log file for level ups.
 
-LevelupLogFile = "levelup.log"
+LevelupLogFile = ""
 
 # Log file for trades.
 
-LogMoneyTrades = "trades.log"
+LogMoneyTrades = ""
 LogMoneyTreshold = 10000
 
 # NostalriusLogFile. Log file for various logs.
 
-NostalriusLogFile = "info.log"
+NostalriusLogFile = ""
 
 # NostalriusLogTimestamp. Nostalrius Logfile with timestamp of server start in name
 
@@ -643,7 +643,7 @@ NostalriusLogTimestamp = 0
 
 # PerformanceLog. Log file for performance.
 
-PerformanceLog.File = "perf.log"
+PerformanceLog.File = ""
 PerformanceLog.SlowWorldUpdate = 250
 PerformanceLog.SlowMapSystemUpdate = 200
 PerformanceLog.SlowSessionsUpdate = 200
